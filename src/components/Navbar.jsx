@@ -41,7 +41,7 @@ const styles = {
     borderBottom: '1px solid #1e293b',
   },
   brand: {
-    color: '#38bdf8',
+    color: '#4ade80',
     fontWeight: '700',
     fontSize: '18px',
     marginRight: '40px',
