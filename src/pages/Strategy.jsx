@@ -122,7 +122,7 @@ const SECTIONS = [
   },
 ];
 
-function Strategy() {
+function Strategy({ onViewStocks }) {
   const [selected, setSelected] = useState([]);
   const [subSelections, setSubSelections] = useState({});
 
@@ -235,7 +235,7 @@ function Strategy() {
           <span style={styles.footerText}>
             {totalSelected} factor{totalSelected > 1 ? 's' : ''} selected
           </span>
-          <button style={styles.button}>
+          <button style={styles.button} onClick={() => onViewStocks(selected, subSelections)}>
             View Matching Stocks →
           </button>
         </div>
