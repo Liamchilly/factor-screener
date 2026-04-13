@@ -38,13 +38,8 @@ function CandlestickChart({ ticker }) {
         vertLines: { color: '#1e293b' },
         horzLines: { color: '#1e293b' },
       },
-      rightPriceScale: {
-        borderColor: '#1e293b',
-      },
-      timeScale: {
-        borderColor: '#1e293b',
-        timeVisible: true,
-      },
+      rightPriceScale: { borderColor: '#1e293b' },
+      timeScale: { borderColor: '#1e293b', timeVisible: true },
     });
 
     const candleSeries = chart.addSeries(CandlestickSeries, {
@@ -66,7 +61,7 @@ function CandlestickChart({ ticker }) {
       .then(res => res.json())
       .then(data => {
         if (!data.results || data.results.length === 0) {
-          setChartError('No chart data available for this stock.');
+          setChartError('No chart data available.');
           return;
         }
         const candles = data.results.map(bar => ({
@@ -94,9 +89,7 @@ function CandlestickChart({ ticker }) {
     };
   }, [ticker]);
 
-  if (chartError) {
-    return <div style={styles.detailLoading}>{chartError}</div>;
-  }
+  if (chartError) return <div style={styles.detailLoading}>{chartError}</div>;
 
   return (
     <div style={styles.chartWrapper}>
@@ -105,18 +98,118 @@ function CandlestickChart({ ticker }) {
   );
 }
 
-function Screener({ selectedFactors, subSelections, portfolio, setPortfolio }) {
+function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
+  try {
+    if (!selectedFactors || selectedFactors.length === 0) return 0;
+    const safeSubs = subSelections || {};
+    const safeWeights = weights || {};
+
+    let totalWeight = 0;
+    let earnedScore = 0;
+
+    selectedFactors.forEach(factorId => {
+      const w = safeWeights[factorId] || 2;
+      totalWeight += w;
+      let score = 50;
+
+      const cap = detail ? (detail.marketCap || 0) : 0;
+      const listedYear = stock && stock.list_date
+        ? new Date().getFullYear() - parseInt(stock.list_date.split('-')[0])
+        : 5;
+
+      if (factorId === 'market_cap') {
+        const subs = safeSubs['market_cap'] || [];
+        if (subs.includes('Small Cap') && cap >= 300e6 && cap <= 2e9) score = 100;
+        else if (subs.includes('Mid Cap') && cap > 2e9 && cap <= 10e9) score = 100;
+        else if (subs.includes('Large Cap') && cap > 10e9) score = 100;
+        else if (cap > 0) score = 25;
+        else score = 50;
+      } else if (factorId === 'volatility') {
+        const sub = safeSubs['volatility'];
+        if (sub === 'Low' && listedYear >= 10) score = 90;
+        else if (sub === 'Low' && listedYear >= 5) score = 70;
+        else if (sub === 'Medium' && listedYear >= 3 && listedYear < 10) score = 90;
+        else if (sub === 'High' && listedYear < 3) score = 90;
+        else score = 40;
+      } else if (factorId === 'momentum') {
+        const vol = detail ? (detail.volume || 0) : 0;
+        if (vol > 5000000) score = 90;
+        else if (vol > 1000000) score = 70;
+        else if (vol > 100000) score = 50;
+        else score = 30;
+      } else if (factorId === 'value') {
+        if (cap > 0 && cap < 5e9) score = 80;
+        else if (cap >= 5e9 && cap < 50e9) score = 60;
+        else score = 40;
+      } else if (factorId === 'quality' || factorId === 'quality_growth') {
+        const employees = detail ? (detail.employees || 0) : 0;
+        if (employees > 10000) score = 80;
+        else if (employees > 1000) score = 65;
+        else score = 50;
+      } else {
+        score = 60;
+      }
+
+      earnedScore += score * w;
+    });
+
+    return totalWeight > 0 ? Math.round(earnedScore / totalWeight) : 0;
+  } catch (e) {
+    return 0;
+  }
+}
+
+function Screener({ selectedFactors, subSelections, weights, portfolio, setPortfolio }) {
   const [stocks, setStocks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState(null);
   const [stockDetails, setStockDetails] = useState({});
   const [detailsLoading, setDetailsLoading] = useState({});
+  const [loadingDetails, setLoadingDetails] = useState(false);
 
   useEffect(() => {
     if (!selectedFactors || selectedFactors.length === 0) return;
     fetchStocks();
   }, [selectedFactors]);
+
+  const fetchAllBasicData = async (stockList) => {
+    setLoadingDetails(true);
+    const results = {};
+    for (let i = 0; i < stockList.length; i++) {
+      const ticker = stockList[i].ticker;
+      try {
+        const [detailRes, priceRes] = await Promise.all([
+          fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`),
+          fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
+        ]);
+        const detailData = await detailRes.json();
+        const priceData = await priceRes.json();
+        const detail = detailData.results || {};
+        const price = priceData.results?.[0] || {};
+        results[ticker] = {
+          description: detail.description || null,
+          sector: detail.sic_description || null,
+          employees: detail.total_employees || null,
+          website: detail.homepage_url || null,
+          marketCap: detail.market_cap || null,
+          close: price.c || null,
+          open: price.o || null,
+          high: price.h || null,
+          low: price.l || null,
+          volume: price.v || null,
+          change: price.c && price.o ? (((price.c - price.o) / price.o) * 100).toFixed(2) : null,
+        };
+      } catch (e) {
+        results[ticker] = { error: true };
+      }
+      if (i > 0 && i % 4 === 0) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+    }
+    setStockDetails(results);
+    setLoadingDetails(false);
+  };
 
   const fetchStocks = async () => {
     setLoading(true);
@@ -124,7 +217,7 @@ function Screener({ selectedFactors, subSelections, portfolio, setPortfolio }) {
     setExpanded(null);
     setStockDetails({});
     try {
-      const url = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&type=CS&order=asc&sort=ticker&limit=50&apiKey=${POLYGON_KEY}`;
+      const url = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&type=CS&order=asc&sort=ticker&limit=100&apiKey=${POLYGON_KEY}`;
       const res = await fetch(url);
       const text = await res.text();
       const data = JSON.parse(text);
@@ -132,6 +225,7 @@ function Screener({ selectedFactors, subSelections, portfolio, setPortfolio }) {
         throw new Error(data.error || 'No results returned');
       }
       setStocks(data.results);
+      await fetchAllBasicData(data.results);
     } catch (err) {
       setError('Failed to load stocks. Error: ' + err.message);
     }
@@ -203,6 +297,19 @@ function Screener({ selectedFactors, subSelections, portfolio, setPortfolio }) {
     return ex || 'N/A';
   };
 
+  const getScoredStocks = () => {
+    if (!stocks || stocks.length === 0) return [];
+    const safeSubs = subSelections || {};
+    const safeWeights = weights || {};
+    return stocks
+      .map(stock => ({
+        ...stock,
+        score: scoreStock(stock, stockDetails[stock.ticker], selectedFactors, safeSubs, safeWeights),
+      }))
+      .filter(stock => stock.score >= 50)
+      .sort((a, b) => b.score - a.score || a.ticker.localeCompare(b.ticker));
+  };
+
   if (!selectedFactors || selectedFactors.length === 0) {
     return (
       <div style={styles.container}>
@@ -215,12 +322,16 @@ function Screener({ selectedFactors, subSelections, portfolio, setPortfolio }) {
     );
   }
 
+  const scoredStocks = getScoredStocks();
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>Stock Screener</h1>
-          <p style={styles.subtitle}>Showing stocks that match your selected factors. Click a row for details.</p>
+          <p style={styles.subtitle}>
+            {loadingDetails ? 'Scoring stocks against your factors...' : 'Stocks ranked by match to your selected factors. Click a row for details.'}
+          </p>
         </div>
         <button onClick={fetchStocks} style={styles.refreshBtn}>Refresh</button>
       </div>
@@ -229,36 +340,50 @@ function Screener({ selectedFactors, subSelections, portfolio, setPortfolio }) {
         {selectedFactors.map(f => (
           <span key={f} style={styles.tag}>
             {FACTOR_LABELS[f] || f}
-            {subSelections[f] && (
+            {subSelections && subSelections[f] && (
               <span style={styles.tagSub}>
                 {Array.isArray(subSelections[f]) ? ` - ${subSelections[f].join(', ')}` : ` - ${subSelections[f]}`}
+              </span>
+            )}
+            {weights && weights[f] && (
+              <span style={styles.tagWeight}>
+                {weights[f] === 1 ? ' · Low' : weights[f] === 2 ? ' · Med' : ' · High'}
               </span>
             )}
           </span>
         ))}
       </div>
 
-      {loading && <div style={styles.status}>Loading matching stocks...</div>}
+      {(loading || loadingDetails) && (
+        <div style={styles.status}>
+          {loading ? 'Loading stocks...' : 'Scoring stocks against your factors, please wait...'}
+        </div>
+      )}
       {error && <div style={styles.errorBox}>{error}</div>}
 
       {!loading && !error && stocks.length === 0 && (
-        <div style={styles.status}>No stocks matched your filters. Try adjusting your factors.</div>
+        <div style={styles.status}>No stocks matched your filters.</div>
       )}
 
       {!loading && stocks.length > 0 && (
         <div style={styles.tableWrapper}>
           <div style={styles.tableHeader}>
+            <span style={styles.colRank}>#</span>
             <span style={styles.col1}>Ticker</span>
             <span style={styles.col2}>Company</span>
             <span style={styles.col3}>Exchange</span>
             <span style={styles.col4}>Listed Since</span>
+            <span style={styles.colScore}>Match</span>
             <span style={styles.col5}></span>
           </div>
 
-          {stocks.map(stock => {
+          {scoredStocks.map((stock, index) => {
             const detail = stockDetails[stock.ticker];
             const isExpanded = expanded === stock.ticker;
             const isLoadingDetail = detailsLoading[stock.ticker];
+            const score = stock.score;
+            const scoreColor = score >= 75 ? '#4ade80' : score >= 50 ? '#facc15' : '#f87171';
+            const scoreBg = score >= 75 ? '#0f2a1a' : score >= 50 ? '#1a1a0f' : '#1a0f0f';
 
             return (
               <div key={stock.ticker}>
@@ -269,12 +394,25 @@ function Screener({ selectedFactors, subSelections, portfolio, setPortfolio }) {
                   }}
                   onClick={() => toggleExpand(stock.ticker)}
                 >
+                  <span style={styles.colRank}>
+                    <span style={styles.rankNum}>{index + 1}</span>
+                  </span>
                   <span style={styles.col1}>
                     <span style={styles.ticker}>{stock.ticker}</span>
                   </span>
                   <span style={styles.col2}>{stock.name}</span>
                   <span style={styles.col3}>{formatExchange(stock.primary_exchange)}</span>
                   <span style={styles.col4}>{stock.list_date || 'N/A'}</span>
+                  <span style={styles.colScore}>
+                    <span style={{
+                      ...styles.scoreBadge,
+                      background: scoreBg,
+                      color: scoreColor,
+                      border: `1px solid ${scoreColor}`,
+                    }}>
+                      {loadingDetails ? '...' : `${score}%`}
+                    </span>
+                  </span>
                   <span style={styles.col5}>
                     <button
                       onClick={(e) => addToPortfolio(stock, e)}
@@ -440,6 +578,11 @@ const styles = {
     color: '#86efac',
     fontWeight: '400',
   },
+  tagWeight: {
+    color: '#4ade80',
+    fontWeight: '400',
+    opacity: 0.7,
+  },
   status: {
     color: '#94a3b8',
     fontSize: '15px',
@@ -474,7 +617,7 @@ const styles = {
   },
   tableHeader: {
     display: 'grid',
-    gridTemplateColumns: '90px 1fr 120px 130px 140px',
+    gridTemplateColumns: '40px 90px 1fr 120px 130px 80px 140px',
     padding: '12px 20px',
     background: '#0f172a',
     borderBottom: '1px solid #1e293b',
@@ -486,7 +629,7 @@ const styles = {
   },
   tableRow: {
     display: 'grid',
-    gridTemplateColumns: '90px 1fr 120px 130px 140px',
+    gridTemplateColumns: '40px 90px 1fr 120px 130px 80px 140px',
     padding: '16px 20px',
     borderBottom: '1px solid #1e293b',
     cursor: 'pointer',
@@ -497,16 +640,29 @@ const styles = {
   tableRowExpanded: {
     background: '#0f172a',
   },
-  ticker: {
-    fontWeight: '700',
-    color: '#4ade80',
-    fontSize: '14px',
+  colRank: { display: 'flex', alignItems: 'center' },
+  rankNum: {
+    fontSize: '12px',
+    color: '#475569',
+    fontWeight: '600',
   },
   col1: { display: 'flex', alignItems: 'center' },
   col2: { fontSize: '14px', color: '#f1f5f9', paddingRight: '16px' },
   col3: { fontSize: '13px', color: '#94a3b8' },
   col4: { fontSize: '13px', color: '#94a3b8' },
+  colScore: { display: 'flex', alignItems: 'center' },
+  scoreBadge: {
+    padding: '3px 10px',
+    borderRadius: '20px',
+    fontSize: '12px',
+    fontWeight: '700',
+  },
   col5: { display: 'flex', justifyContent: 'flex-end' },
+  ticker: {
+    fontWeight: '700',
+    color: '#4ade80',
+    fontSize: '14px',
+  },
   addBtn: {
     background: 'transparent',
     border: '1px solid #4ade80',
