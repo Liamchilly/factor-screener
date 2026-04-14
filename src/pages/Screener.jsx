@@ -172,11 +172,10 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
   const [progressTotal, setProgressTotal] = useState(0);
   const [scoring, setScoring] = useState(false);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
-    if (!selectedFactors || selectedFactors.length === 0) return;
-    fetchStocks();
-  }, [selectedFactors]);
+  if (!selectedFactors || selectedFactors.length === 0) return;
+  fetchStocks(); // eslint-disable-line react-hooks/exhaustive-deps
+}, [selectedFactors]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchAllBasicData = async (tickerList) => {
     setScoring(true);

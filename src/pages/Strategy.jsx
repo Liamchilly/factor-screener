@@ -125,11 +125,15 @@ const SECTIONS = [
 function Strategy({ onViewStocks }) {
   const [selected, setSelected] = useState([]);
   const [subSelections, setSubSelections] = useState({});
+  const [weights, setWeights] = useState({});
 
   const toggle = (id) => {
     setSelected(prev =>
       prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]
     );
+    if (!weights[id]) {
+      setWeights(prev => ({ ...prev, [id]: 2 }));
+    }
   };
 
   const selectSub = (factorId, option, multiSub, e) => {
@@ -147,6 +151,9 @@ function Strategy({ onViewStocks }) {
     }
     if (!selected.includes(factorId)) {
       setSelected(prev => [...prev, factorId]);
+      if (!weights[factorId]) {
+        setWeights(prev => ({ ...prev, [factorId]: 2 }));
+      }
     }
   };
 
@@ -157,6 +164,11 @@ function Strategy({ onViewStocks }) {
     return current === option;
   };
 
+  const setWeight = (id, value, e) => {
+    e.stopPropagation();
+    setWeights(prev => ({ ...prev, [id]: Number(value) }));
+  };
+
   const totalSelected = selected.length;
 
   return (
@@ -164,7 +176,7 @@ function Strategy({ onViewStocks }) {
       <div style={styles.pageHeader}>
         <h1 style={styles.title}>Build Your Strategy</h1>
         <p style={styles.subtitle}>
-          Select the factors you want your stocks to meet. Combine multiple factors to refine your screen.
+          Select the factors you want your stocks to meet. Use the weight slider to prioritize what matters most.
         </p>
       </div>
 
@@ -184,6 +196,7 @@ function Strategy({ onViewStocks }) {
                 <div style={styles.rightCol}>
                   {cat.factors.map(factor => {
                     const isSelected = selected.includes(factor.id);
+                    const weight = weights[factor.id] || 2;
                     return (
                       <div
                         key={factor.id}
@@ -220,6 +233,26 @@ function Strategy({ onViewStocks }) {
                             ))}
                           </div>
                         )}
+
+                        {isSelected && (
+                          <div style={styles.weightRow} onClick={e => e.stopPropagation()}>
+                            <span style={styles.weightLabel}>Priority</span>
+                            <div style={styles.weightButtons}>
+                              {[1, 2, 3].map(w => (
+                                <button
+                                  key={w}
+                                  onClick={(e) => setWeight(factor.id, w, e)}
+                                  style={{
+                                    ...styles.weightBtn,
+                                    ...(weight === w ? styles.weightBtnActive : {}),
+                                  }}
+                                >
+                                  {w === 1 ? 'Low' : w === 2 ? 'Medium' : 'High'}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   })}
@@ -235,7 +268,10 @@ function Strategy({ onViewStocks }) {
           <span style={styles.footerText}>
             {totalSelected} factor{totalSelected > 1 ? 's' : ''} selected
           </span>
-          <button style={styles.button} onClick={() => onViewStocks(selected, subSelections)}>
+          <button
+            style={styles.button}
+            onClick={() => onViewStocks(selected, subSelections, weights)}
+          >
             View Matching Stocks →
           </button>
         </div>
@@ -368,6 +404,39 @@ const styles = {
     cursor: 'pointer',
   },
   subBtnSelected: {
+    background: '#0f2a1a',
+    border: '1px solid #4ade80',
+    color: '#4ade80',
+  },
+  weightRow: {
+    marginTop: '14px',
+    paddingTop: '14px',
+    borderTop: '1px solid #1e293b',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  weightLabel: {
+    fontSize: '11px',
+    color: '#475569',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    whiteSpace: 'nowrap',
+  },
+  weightButtons: {
+    display: 'flex',
+    gap: '6px',
+  },
+  weightBtn: {
+    background: '#0f172a',
+    border: '1px solid #334155',
+    color: '#475569',
+    padding: '3px 10px',
+    borderRadius: '20px',
+    fontSize: '11px',
+    cursor: 'pointer',
+  },
+  weightBtnActive: {
     background: '#0f2a1a',
     border: '1px solid #4ade80',
     color: '#4ade80',
