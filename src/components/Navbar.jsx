@@ -6,6 +6,7 @@ function Navbar() {
 
   const tabs = [
     { path: '/', label: 'Strategy' },
+    { path: '/factors', label: 'Factors' },
     { path: '/screener', label: 'Stock Screener' },
     { path: '/portfolio', label: 'My Portfolio' },
   ];

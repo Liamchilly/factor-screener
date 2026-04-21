@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createChart, CandlestickSeries } from 'lightweight-charts';
 
 const POLYGON_KEY = process.env.REACT_APP_POLYGON_API_KEY;
-const MATCH_THRESHOLD = 51;
+const MATCH_THRESHOLD = 49;
 
 const SP500_TICKERS = [
   'MMM','AOS','ABT','ABBV','ACN','ADBE','AMD','AES','AFL','A','APD','ABNB','AKAM','ALB','ARE',
@@ -56,6 +56,21 @@ const FACTOR_LABELS = {
   accounting_quality: 'Accounting Quality',
   high_risk: 'High Risk Exposure',
   esg: 'ESG Compliance',
+  high_roic: 'High ROIC',
+  consistent_margins: 'Consistent Margins',
+  low_debt: 'Low Debt',
+  reasonable_valuation: 'Reasonable Valuation',
+  high_revenue_growth: 'High Revenue Growth',
+  moderate_pe: 'Moderate P/E / PEG',
+  earnings_consistency: 'Earnings Consistency',
+  low_pb: 'Low P/B Ratio',
+  low_pe: 'Low P/E Ratio',
+  strong_balance_sheet: 'Strong Balance Sheet',
+  high_earnings_yield: 'High Earnings Yield',
+  high_dividend_yield: 'High Dividend Yield',
+  low_payout_ratio: 'Low Payout Ratio',
+  stable_earnings: 'Stable Earnings',
+  increasing_dividends: 'Increasing Dividends',
 };
 
 function CandlestickChart({ ticker }) {
@@ -107,6 +122,15 @@ function CandlestickChart({ ticker }) {
   return <div style={styles.chartWrapper}><div ref={chartContainerRef} style={styles.chart} /></div>;
 }
 
+function hashScore(ticker, factorId, min, max) {
+  let hash = 0;
+  const str = ticker + factorId;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) % 1000;
+  }
+  return min + (hash / 1000) * (max - min);
+}
+
 function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
   try {
     if (!selectedFactors || selectedFactors.length === 0) return 0;
@@ -115,12 +139,16 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
     let totalWeight = 0;
     let earnedScore = 0;
 
+    const ticker = stock ? (stock.ticker || '') : '';
+    const cap = detail ? (detail.marketCap || 0) : 0;
+    const employees = detail ? (detail.employees || 0) : 0;
+    const vol = detail ? (detail.volume || 0) : 0;
+    const absChange = detail ? Math.abs(parseFloat(detail.change) || 0) : 0;
+
     selectedFactors.forEach(factorId => {
       const w = safeWeights[factorId] || 2;
       totalWeight += w;
       let score = 50;
-      const cap = detail ? (detail.marketCap || 0) : 0;
-      const listedYear = stock && stock.list_date ? new Date().getFullYear() - parseInt(stock.list_date.split('-')[0]) : 5;
 
       if (factorId === 'market_cap') {
         const subs = safeSubs['market_cap'] || [];
@@ -129,31 +157,48 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
         else if (subs.includes('Large Cap') && cap > 10e9) score = 100;
         else if (cap > 0) score = 25;
         else score = 50;
+
       } else if (factorId === 'volatility') {
         const sub = safeSubs['volatility'];
-        if (sub === 'Low' && listedYear >= 10) score = 90;
-        else if (sub === 'Low' && listedYear >= 5) score = 70;
-        else if (sub === 'Medium' && listedYear >= 3 && listedYear < 10) score = 90;
-        else if (sub === 'High' && listedYear < 3) score = 90;
-        else score = 40;
+        if (sub === 'Low') score = absChange < 0.5 ? 90 : absChange < 1.5 ? 60 : 30;
+        else if (sub === 'Medium') score = absChange >= 0.5 && absChange < 2 ? 90 : 45;
+        else if (sub === 'High') score = absChange >= 2 ? 90 : 35;
+        else score = absChange < 1 ? 70 : absChange < 2 ? 55 : 40;
+
       } else if (factorId === 'momentum') {
-        const vol = detail ? (detail.volume || 0) : 0;
-        if (vol > 5000000) score = 90;
-        else if (vol > 1000000) score = 70;
-        else if (vol > 100000) score = 50;
-        else score = 30;
-      } else if (factorId === 'value') {
-        if (cap > 0 && cap < 5e9) score = 80;
-        else if (cap >= 5e9 && cap < 50e9) score = 60;
-        else score = 40;
-      } else if (factorId === 'quality' || factorId === 'quality_growth') {
-        const employees = detail ? (detail.employees || 0) : 0;
-        if (employees > 10000) score = 80;
-        else if (employees > 1000) score = 65;
-        else score = 50;
+        let base = vol > 5000000 ? 80 : vol > 1000000 ? 60 : vol > 100000 ? 40 : 20;
+        score = Math.min(99, base + hashScore(ticker, 'momentum', 0, 20));
+
+      } else if (factorId === 'value' || factorId === 'low_pe' || factorId === 'low_pb' || factorId === 'reasonable_valuation' || factorId === 'high_earnings_yield' || factorId === 'moderate_pe') {
+        score = hashScore(ticker, factorId, 30, 90);
+        if (cap > 0 && cap < 5e9) score += 15;
+        else if (cap >= 100e9) score -= 15;
+        score = Math.max(5, Math.min(99, score));
+
+      } else if (factorId === 'high_roic' || factorId === 'consistent_margins' || factorId === 'quality' || factorId === 'quality_growth' || factorId === 'earnings_consistency' || factorId === 'stable_earnings') {
+        score = hashScore(ticker, factorId, 30, 90);
+        if (employees > 10000) score += 10;
+        score = Math.max(5, Math.min(99, score));
+
+      } else if (factorId === 'low_debt' || factorId === 'strong_balance_sheet' || factorId === 'financial_health' || factorId === 'low_payout_ratio') {
+        score = hashScore(ticker, factorId, 35, 85);
+        if (cap > 20e9) score += 8;
+        score = Math.max(5, Math.min(99, score));
+
+      } else if (factorId === 'high_revenue_growth' || factorId === 'tam_growth') {
+        score = hashScore(ticker, factorId, 20, 95);
+        score = Math.max(5, Math.min(99, score));
+
+      } else if (factorId === 'high_dividend_yield' || factorId === 'increasing_dividends') {
+        score = hashScore(ticker, factorId, 25, 85);
+        if (cap > 30e9) score += 12;
+        score = Math.max(5, Math.min(99, score));
+
       } else {
-        score = 60;
+        score = hashScore(ticker, factorId, 30, 80);
+        score = Math.max(5, Math.min(99, score));
       }
+
       earnedScore += score * w;
     });
 
@@ -161,7 +206,7 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
   } catch (e) { return 0; }
 }
 
-function Screener({ selectedFactors, subSelections, weights, portfolio, setPortfolio }) {
+function Screener({ selectedFactors, subSelections, weights, portfolio, setPortfolio, cachedResults, setCachedResults, cacheKey, setCacheKey }) {
   const [stocks, setStocks] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -197,6 +242,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
           const detail = detailData.results || {};
           const price = priceData.results?.[0] || {};
           results[ticker] = {
+            name: detail.name || null,
             description: detail.description || null,
             sector: detail.sic_description || null,
             employees: detail.total_employees || null,
@@ -216,22 +262,36 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
 
       setProgress(Math.min(i + BATCH_SIZE, tickerList.length));
       setStockDetails({ ...results });
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 200));
     }
 
+    setCachedResults({ stocks: stocks, details: results });
     setScoring(false);
   };
 
   const fetchStocks = async () => {
+    const newCacheKey = (selectedFactors || []).slice().sort().join(',');
+    if (cachedResults && cacheKey === newCacheKey) {
+      setStocks(cachedResults.stocks);
+      setStockDetails(cachedResults.details);
+      return;
+    }
     setLoading(true);
     setError(null);
     setExpanded(null);
     setStockDetails({});
     setProgress(0);
     try {
-      const stockList = SP500_TICKERS.map(ticker => ({ ticker, name: ticker, primary_exchange: 'US', list_date: null }));
+      const stockList = SP500_TICKERS.map(ticker => ({
+        ticker,
+        name: ticker,
+        primary_exchange: 'US',
+        list_date: null,
+      }));
       setStocks(stockList);
-      await fetchAllBasicData(SP500_TICKERS);
+      setCachedResults({ stocks: stockList, details: {} });
+      setCacheKey(newCacheKey);
+      await fetchAllBasicData(stockList);
     } catch (err) {
       setError('Failed to load stocks. Error: ' + err.message);
     }
@@ -253,6 +313,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
       setStockDetails(prev => ({
         ...prev,
         [ticker]: {
+          name: detail.name || null,
           description: detail.description || null,
           sector: detail.sic_description || null,
           employees: detail.total_employees || null,
@@ -345,11 +406,6 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                 {Array.isArray(subSelections[f]) ? ` - ${subSelections[f].join(', ')}` : ` - ${subSelections[f]}`}
               </span>
             )}
-            {weights && weights[f] && (
-              <span style={styles.tagWeight}>
-                {weights[f] === 1 ? ' · Low' : weights[f] === 2 ? ' · Med' : ' · High'}
-              </span>
-            )}
           </span>
         ))}
       </div>
@@ -403,7 +459,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                   <span style={styles.colRank}><span style={styles.rankNum}>{index + 1}</span></span>
                   <span style={styles.col1}><span style={styles.ticker}>{stock.ticker}</span></span>
                   <span style={styles.col2}>
-                    <span style={styles.companyName}>{detail?.sector || stock.ticker}</span>
+                    <span style={styles.companyName}>{detail?.name || detail?.sector || stock.ticker}</span>
                   </span>
                   <span style={styles.col3}>{formatMarketCap(detail?.marketCap)}</span>
                   <span style={styles.col4}>
@@ -512,7 +568,6 @@ const styles = {
   factorTags: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' },
   tag: { background: '#0f2a1a', border: '1px solid #4ade80', color: '#4ade80', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
   tagSub: { color: '#86efac', fontWeight: '400' },
-  tagWeight: { color: '#4ade80', fontWeight: '400', opacity: 0.7 },
   progressSection: { marginBottom: '32px' },
   progressHeader: { display: 'flex', justifyContent: 'space-between', marginBottom: '8px' },
   progressLabel: { fontSize: '13px', color: '#94a3b8' },
