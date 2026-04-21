@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { createChart, CandlestickSeries } from 'lightweight-charts';
 
 const POLYGON_KEY = process.env.REACT_APP_POLYGON_API_KEY;
+const FMP_KEY = process.env.REACT_APP_FMP_API_KEY;
 const MATCH_THRESHOLD = 49;
 
 const SP500_TICKERS = [
@@ -141,9 +142,63 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
 
     const ticker = stock ? (stock.ticker || '') : '';
     const cap = detail ? (detail.marketCap || 0) : 0;
-    const employees = detail ? (detail.employees || 0) : 0;
     const vol = detail ? (detail.volume || 0) : 0;
     const absChange = detail ? Math.abs(parseFloat(detail.change) || 0) : 0;
+
+    // FMP fields — all nullable
+    const peRatio          = detail?.peRatio          ?? null;
+    const pbRatio          = detail?.pbRatio          ?? null;
+    const earningsYield    = detail?.earningsYield    ?? null;
+    const dividendYield    = detail?.dividendYield    ?? null;
+    const payoutRatio      = detail?.payoutRatio      ?? null;
+    const debtToEquity     = detail?.debtToEquity     ?? null;
+    const currentRatio     = detail?.currentRatio     ?? null;
+    const roic             = detail?.roic             ?? null;
+    const freeCashFlowPerShare = detail?.freeCashFlowPerShare ?? null;
+    const revenue0         = detail?.revenue0         ?? null;
+    const revenue1         = detail?.revenue1         ?? null;
+    const grossMargin0     = detail?.grossMargin0     ?? null;
+    const grossMargin1     = detail?.grossMargin1     ?? null;
+    const eps0             = detail?.eps0             ?? null;
+    const eps1             = detail?.eps1             ?? null;
+
+    // Sub-scorers used by composite factors
+    const calcPeScore = (pe) => {
+      if (pe === null) return null;
+      if (pe < 10) return 95;
+      if (pe < 15) return 80;
+      if (pe < 20) return 65;
+      if (pe < 30) return 45;
+      return 20;
+    };
+    const calcPbScore = (pb) => {
+      if (pb === null) return null;
+      if (pb < 1) return 95;
+      if (pb < 2) return 80;
+      if (pb < 3) return 65;
+      if (pb < 5) return 40;
+      return 20;
+    };
+    const calcRoicScore = (r) => {
+      if (r === null) return null;
+      if (r > 0.20) return 95;
+      if (r > 0.15) return 80;
+      if (r > 0.10) return 60;
+      if (r > 0.05) return 40;
+      return 15;
+    };
+    const calcMarginsScore = (gm0, gm1) => {
+      if (gm0 === null) return null;
+      if (gm1 !== null) {
+        const diff = gm0 - gm1;
+        if (diff >= -0.02) return 85;
+        if (diff >= -0.05) return 55;
+        return 25;
+      }
+      if (gm0 > 0.40) return 80;
+      if (gm0 > 0.20) return 60;
+      return 40;
+    };
 
     selectedFactors.forEach(factorId => {
       const w = safeWeights[factorId] || 2;
@@ -166,40 +221,154 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
         else score = absChange < 1 ? 70 : absChange < 2 ? 55 : 40;
 
       } else if (factorId === 'momentum') {
-        let base = vol > 5000000 ? 80 : vol > 1000000 ? 60 : vol > 100000 ? 40 : 20;
+        const base = vol > 5000000 ? 80 : vol > 1000000 ? 60 : vol > 100000 ? 40 : 20;
         score = Math.min(99, base + hashScore(ticker, 'momentum', 0, 20));
 
-      } else if (factorId === 'value' || factorId === 'low_pe' || factorId === 'low_pb' || factorId === 'reasonable_valuation' || factorId === 'high_earnings_yield' || factorId === 'moderate_pe') {
-        score = hashScore(ticker, factorId, 30, 90);
-        if (cap > 0 && cap < 5e9) score += 15;
-        else if (cap >= 100e9) score -= 15;
-        score = Math.max(5, Math.min(99, score));
+      } else if (factorId === 'low_pe') {
+        const s = calcPeScore(peRatio);
+        score = s !== null ? s : hashScore(ticker, 'low_pe', 30, 90);
 
-      } else if (factorId === 'high_roic' || factorId === 'consistent_margins' || factorId === 'quality' || factorId === 'quality_growth' || factorId === 'earnings_consistency' || factorId === 'stable_earnings') {
-        score = hashScore(ticker, factorId, 30, 90);
-        if (employees > 10000) score += 10;
-        score = Math.max(5, Math.min(99, score));
+      } else if (factorId === 'low_pb') {
+        const s = calcPbScore(pbRatio);
+        score = s !== null ? s : hashScore(ticker, 'low_pb', 30, 90);
 
-      } else if (factorId === 'low_debt' || factorId === 'strong_balance_sheet' || factorId === 'financial_health' || factorId === 'low_payout_ratio') {
-        score = hashScore(ticker, factorId, 35, 85);
-        if (cap > 20e9) score += 8;
-        score = Math.max(5, Math.min(99, score));
+      } else if (factorId === 'high_earnings_yield') {
+        if (earningsYield !== null) {
+          if (earningsYield > 0.08) score = 90;
+          else if (earningsYield > 0.05) score = 70;
+          else if (earningsYield > 0.03) score = 50;
+          else score = 25;
+        } else {
+          score = hashScore(ticker, 'high_earnings_yield', 30, 90);
+        }
 
-      } else if (factorId === 'high_revenue_growth' || factorId === 'tam_growth') {
-        score = hashScore(ticker, factorId, 20, 95);
-        score = Math.max(5, Math.min(99, score));
+      } else if (factorId === 'reasonable_valuation' || factorId === 'value') {
+        const peS = calcPeScore(peRatio);
+        const pbS = calcPbScore(pbRatio);
+        if (peS !== null && pbS !== null) score = (peS + pbS) / 2;
+        else if (peS !== null) score = peS;
+        else if (pbS !== null) score = pbS;
+        else score = hashScore(ticker, factorId, 30, 90);
 
-      } else if (factorId === 'high_dividend_yield' || factorId === 'increasing_dividends') {
-        score = hashScore(ticker, factorId, 25, 85);
-        if (cap > 30e9) score += 12;
-        score = Math.max(5, Math.min(99, score));
+      } else if (factorId === 'moderate_pe') {
+        if (peRatio !== null) {
+          if (peRatio >= 15 && peRatio <= 25) score = 85;
+          else if ((peRatio >= 10 && peRatio < 15) || (peRatio > 25 && peRatio <= 35)) score = 65;
+          else if (peRatio < 10) score = 45;
+          else score = 25;
+        } else {
+          score = hashScore(ticker, 'moderate_pe', 30, 90);
+        }
+
+      } else if (factorId === 'high_roic') {
+        const s = calcRoicScore(roic);
+        score = s !== null ? s : hashScore(ticker, 'high_roic', 30, 90);
+
+      } else if (factorId === 'quality' || factorId === 'quality_growth') {
+        const roicS = calcRoicScore(roic);
+        const margS = calcMarginsScore(grossMargin0, grossMargin1);
+        if (roicS !== null && margS !== null) score = (roicS + margS) / 2;
+        else if (roicS !== null) score = roicS;
+        else if (margS !== null) score = margS;
+        else score = hashScore(ticker, factorId, 30, 90);
+
+      } else if (factorId === 'consistent_margins') {
+        const s = calcMarginsScore(grossMargin0, grossMargin1);
+        score = s !== null ? s : hashScore(ticker, 'consistent_margins', 30, 90);
+
+      } else if (factorId === 'stable_earnings' || factorId === 'earnings_consistency') {
+        if (eps0 !== null && eps1 !== null && eps1 !== 0) {
+          const ratio = (eps0 - eps1) / Math.abs(eps1);
+          if (eps0 < 0) score = 20;
+          else if (ratio >= -0.05) score = 85;
+          else if (ratio >= -0.15) score = 55;
+          else score = 20;
+        } else {
+          score = hashScore(ticker, factorId, 30, 90);
+        }
+
+      } else if (factorId === 'low_debt' || factorId === 'financial_health') {
+        if (debtToEquity !== null) {
+          if (debtToEquity < 0.3) score = 95;
+          else if (debtToEquity < 0.6) score = 80;
+          else if (debtToEquity < 1.0) score = 60;
+          else if (debtToEquity < 2.0) score = 35;
+          else score = 15;
+        } else {
+          score = hashScore(ticker, factorId, 35, 85);
+        }
+
+      } else if (factorId === 'strong_balance_sheet') {
+        if (currentRatio !== null) {
+          if (currentRatio > 2.5) score = 95;
+          else if (currentRatio > 2.0) score = 85;
+          else if (currentRatio > 1.5) score = 70;
+          else if (currentRatio > 1.0) score = 50;
+          else score = 20;
+        } else {
+          score = hashScore(ticker, 'strong_balance_sheet', 35, 85);
+        }
+
+      } else if (factorId === 'cash_flow') {
+        if (freeCashFlowPerShare !== null) {
+          if (freeCashFlowPerShare > 5) score = 90;
+          else if (freeCashFlowPerShare > 2) score = 75;
+          else if (freeCashFlowPerShare > 0) score = 55;
+          else score = 15;
+        } else {
+          score = hashScore(ticker, 'cash_flow', 30, 90);
+        }
+
+      } else if (factorId === 'high_revenue_growth') {
+        if (revenue0 !== null && revenue1 !== null && revenue1 > 0) {
+          const growth = (revenue0 - revenue1) / revenue1;
+          if (growth > 0.20) score = 95;
+          else if (growth > 0.10) score = 80;
+          else if (growth > 0.05) score = 65;
+          else if (growth > 0) score = 45;
+          else score = 15;
+        } else {
+          score = hashScore(ticker, 'high_revenue_growth', 20, 95);
+        }
+
+      } else if (factorId === 'high_dividend_yield') {
+        if (dividendYield !== null) {
+          if (dividendYield <= 0) score = 10;
+          else if (dividendYield > 0.05) score = 90;
+          else if (dividendYield > 0.03) score = 75;
+          else if (dividendYield > 0.01) score = 50;
+          else score = 10;
+        } else {
+          score = hashScore(ticker, 'high_dividend_yield', 25, 85);
+        }
+
+      } else if (factorId === 'low_payout_ratio') {
+        if (payoutRatio !== null) {
+          if (payoutRatio === 0) score = 20;
+          else if (payoutRatio >= 0.2 && payoutRatio <= 0.5) score = 90;
+          else if (payoutRatio <= 0.7) score = 65;
+          else score = 30;
+        } else {
+          score = hashScore(ticker, 'low_payout_ratio', 35, 85);
+        }
+
+      } else if (factorId === 'increasing_dividends') {
+        if (dividendYield === null && payoutRatio === null) {
+          score = hashScore(ticker, 'increasing_dividends', 25, 85);
+        } else {
+          const dy = dividendYield ?? 0;
+          const pr = payoutRatio ?? 1;
+          if (dy > 0.02 && pr < 0.60) score = 80;
+          else if (dy > 0.02) score = 50;
+          else score = 25;
+        }
 
       } else {
+        // moat, tam_growth, insider, accounting_quality, high_risk, esg — hash fallback
         score = hashScore(ticker, factorId, 30, 80);
-        score = Math.max(5, Math.min(99, score));
       }
 
-      earnedScore += score * w;
+      earnedScore += Math.max(5, Math.min(99, score)) * w;
     });
 
     return totalWeight > 0 ? Math.round(earnedScore / totalWeight) : 0;
@@ -222,6 +391,40 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
   fetchStocks(); // eslint-disable-line react-hooks/exhaustive-deps
 }, [selectedFactors]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const buildFmpData = (metricsJson, incomeJson, balanceJson) => {
+    const m = Array.isArray(metricsJson) ? metricsJson[0] : null;
+    const i0 = Array.isArray(incomeJson) ? incomeJson[0] : null;
+    const i1 = Array.isArray(incomeJson) ? incomeJson[1] : null;
+    const b = Array.isArray(balanceJson) ? balanceJson[0] : null;
+    if (!m) return {};
+    return {
+      peRatio:             m.peRatio             ?? null,
+      pbRatio:             m.pbRatio             ?? null,
+      earningsYield:       m.earningsYield       ?? null,
+      dividendYield:       m.dividendYield       ?? null,
+      payoutRatio:         m.payoutRatio         ?? null,
+      debtToEquity:        m.debtToEquity        ?? null,
+      currentRatio:        m.currentRatio        ?? null,
+      roic:                m.roic                ?? null,
+      roe:                 m.roe                 ?? null,
+      freeCashFlowPerShare: m.freeCashFlowPerShare ?? null,
+      revenuePerShare:     m.revenuePerShare     ?? null,
+      revenue0:            i0?.revenue           ?? null,
+      revenue1:            i1?.revenue           ?? null,
+      grossMargin0:        i0?.grossProfitRatio  ?? null,
+      grossMargin1:        i1?.grossProfitRatio  ?? null,
+      operatingMargin0:    i0?.operatingIncomeRatio ?? null,
+      operatingMargin1:    i1?.operatingIncomeRatio ?? null,
+      netMargin0:          i0?.netIncomeRatio    ?? null,
+      netMargin1:          i1?.netIncomeRatio    ?? null,
+      eps0:                i0?.eps               ?? null,
+      eps1:                i1?.eps               ?? null,
+      totalDebt:           b?.totalDebt          ?? null,
+      totalAssets:         b?.totalAssets        ?? null,
+      cash:                b?.cashAndCashEquivalents ?? null,
+    };
+  };
+
   const fetchAllBasicData = async (tickerList) => {
     setScoring(true);
     setProgressTotal(tickerList.length);
@@ -231,17 +434,34 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
 
     for (let i = 0; i < tickerList.length; i += BATCH_SIZE) {
       const batch = tickerList.slice(i, i + BATCH_SIZE);
-      await Promise.all(batch.map(async (ticker) => {
+      await Promise.all(batch.map(async (stockObj) => {
+        const tickerStr = stockObj.ticker;
         try {
-          const [detailRes, priceRes] = await Promise.all([
-            fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`),
-            fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
+          const [detailRes, priceRes, fmpMetricsRes, fmpIncomeRes, fmpBalanceRes] = await Promise.all([
+            fetch(`https://api.polygon.io/v3/reference/tickers/${tickerStr}?apiKey=${POLYGON_KEY}`),
+            fetch(`https://api.polygon.io/v2/aggs/ticker/${tickerStr}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
+            fetch(`https://financialmodelingprep.com/api/v3/key-metrics/${tickerStr}?limit=1&apiKey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/api/v3/income-statement/${tickerStr}?limit=2&apiKey=${FMP_KEY}`),
+            fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${tickerStr}?limit=2&apiKey=${FMP_KEY}`),
           ]);
           const detailData = await detailRes.json();
           const priceData = await priceRes.json();
           const detail = detailData.results || {};
           const price = priceData.results?.[0] || {};
-          results[ticker] = {
+
+          let fmpData = {};
+          try {
+            const [metricsJson, incomeJson, balanceJson] = await Promise.all([
+              fmpMetricsRes.json(),
+              fmpIncomeRes.json(),
+              fmpBalanceRes.json(),
+            ]);
+            fmpData = buildFmpData(metricsJson, incomeJson, balanceJson);
+          } catch (fmpErr) {
+            console.warn(`FMP fetch failed for ${tickerStr}:`, fmpErr);
+          }
+
+          results[tickerStr] = {
             name: detail.name || null,
             description: detail.description || null,
             sector: detail.sic_description || null,
@@ -254,9 +474,10 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
             low: price.l || null,
             volume: price.v || null,
             change: price.c && price.o ? (((price.c - price.o) / price.o) * 100).toFixed(2) : null,
+            ...fmpData,
           };
         } catch (e) {
-          results[ticker] = { error: true };
+          results[tickerStr] = { error: true };
         }
       }));
 
@@ -302,14 +523,30 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
     if (stockDetails[ticker] && !stockDetails[ticker].error) return;
     setDetailsLoading(prev => ({ ...prev, [ticker]: true }));
     try {
-      const [detailRes, priceRes] = await Promise.all([
+      const [detailRes, priceRes, fmpMetricsRes, fmpIncomeRes, fmpBalanceRes] = await Promise.all([
         fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`),
         fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
+        fetch(`https://financialmodelingprep.com/api/v3/key-metrics/${ticker}?limit=1&apiKey=${FMP_KEY}`),
+        fetch(`https://financialmodelingprep.com/api/v3/income-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
+        fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
       ]);
       const detailData = await detailRes.json();
       const priceData = await priceRes.json();
       const detail = detailData.results || {};
       const price = priceData.results?.[0] || {};
+
+      let fmpData = {};
+      try {
+        const [metricsJson, incomeJson, balanceJson] = await Promise.all([
+          fmpMetricsRes.json(),
+          fmpIncomeRes.json(),
+          fmpBalanceRes.json(),
+        ]);
+        fmpData = buildFmpData(metricsJson, incomeJson, balanceJson);
+      } catch (fmpErr) {
+        console.warn(`FMP fetch failed for ${ticker}:`, fmpErr);
+      }
+
       setStockDetails(prev => ({
         ...prev,
         [ticker]: {
@@ -325,6 +562,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
           low: price.l || null,
           volume: price.v || null,
           change: price.c && price.o ? (((price.c - price.o) / price.o) * 100).toFixed(2) : null,
+          ...fmpData,
         },
       }));
     } catch (err) {
