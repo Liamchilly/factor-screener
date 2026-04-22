@@ -340,6 +340,7 @@ const styles = {
     padding: '20px',
     cursor: 'pointer',
     transition: 'all 0.15s ease',
+    minHeight: '200px',
   },
   cardSelected: {
     border: '2px solid #4ade80',

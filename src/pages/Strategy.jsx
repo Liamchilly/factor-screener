@@ -92,6 +92,9 @@ function StrategyCard({ strategy, onClick }) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
+      {strategy.buildYourOwn && (
+        <div style={styles.customBadge}>✦ Custom</div>
+      )}
       <div style={styles.cardLeft}>
         <h3 style={styles.cardName}>{strategy.name}</h3>
         {strategy.styleLabel && (
@@ -225,7 +228,8 @@ const styles = {
   },
   buildOwnCard: {
     background: '#0d1117',
-    borderLeft: '4px dashed #4ade80',
+    borderLeft: '4px solid #4ade80',
+    position: 'relative',
   },
   buildOwnCardHover: {
     background: '#0f172a',
@@ -307,8 +311,22 @@ const styles = {
     whiteSpace: 'nowrap',
   },
   selectBtnHover: {
-    borderColor: '#4ade80',
+    borderColor: '#f1f5f9',
+    color: '#f1f5f9',
+    background: 'rgba(255,255,255,0.05)',
+  },
+  customBadge: {
+    position: 'absolute',
+    top: '12px',
+    right: '12px',
+    background: '#0f2a1a',
+    border: '1px solid #4ade80',
     color: '#4ade80',
+    fontSize: '10px',
+    fontWeight: '600',
+    padding: '2px 8px',
+    borderRadius: '20px',
+    letterSpacing: '0.04em',
   },
 };
 

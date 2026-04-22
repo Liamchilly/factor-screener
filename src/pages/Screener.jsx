@@ -145,7 +145,6 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
     const vol = detail ? (detail.volume || 0) : 0;
     const absChange = detail ? Math.abs(parseFloat(detail.change) || 0) : 0;
 
-    // FMP fields — all nullable
     const peRatio          = detail?.peRatio          ?? null;
     const pbRatio          = detail?.pbRatio          ?? null;
     const earningsYield    = detail?.earningsYield    ?? null;
@@ -162,7 +161,6 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
     const eps0             = detail?.eps0             ?? null;
     const eps1             = detail?.eps1             ?? null;
 
-    // Sub-scorers used by composite factors
     const calcPeScore = (pe) => {
       if (pe === null) return null;
       if (pe < 10) return 95;
@@ -364,7 +362,6 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
         }
 
       } else {
-        // moat, tam_growth, insider, accounting_quality, high_risk, esg — hash fallback
         score = hashScore(ticker, factorId, 30, 80);
       }
 
@@ -385,11 +382,18 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
   const [progress, setProgress] = useState(0);
   const [progressTotal, setProgressTotal] = useState(0);
   const [scoring, setScoring] = useState(false);
+  const [dataTimestamp, setDataTimestamp] = useState(null);
 
   useEffect(() => {
-  if (!selectedFactors || selectedFactors.length === 0) return;
-  fetchStocks(); // eslint-disable-line react-hooks/exhaustive-deps
-}, [selectedFactors]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!selectedFactors || selectedFactors.length === 0) return;
+    const newCacheKey = (selectedFactors || []).slice().sort().join(',');
+    if (cachedResults && cacheKey === newCacheKey) {
+      setStocks(cachedResults.stocks || []);
+      setStockDetails(cachedResults.details || {});
+      return;
+    }
+    fetchStocks(false); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [selectedFactors]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const buildFmpData = (metricsJson, incomeJson, balanceJson) => {
     const m = Array.isArray(metricsJson) ? metricsJson[0] : null;
@@ -486,15 +490,17 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
       await new Promise(resolve => setTimeout(resolve, 200));
     }
 
-    setCachedResults({ stocks: stocks, details: results });
+    // Use tickerList param (not stale stocks state) for the cache
+    setCachedResults({ stocks: tickerList, details: results });
+    setDataTimestamp(new Date());
     setScoring(false);
   };
 
-  const fetchStocks = async () => {
+  const fetchStocks = async (force = false) => {
     const newCacheKey = (selectedFactors || []).slice().sort().join(',');
-    if (cachedResults && cacheKey === newCacheKey) {
-      setStocks(cachedResults.stocks);
-      setStockDetails(cachedResults.details);
+    if (!force && cachedResults && cacheKey === newCacheKey) {
+      setStocks(cachedResults.stocks || []);
+      setStockDetails(cachedResults.details || {});
       return;
     }
     setLoading(true);
@@ -592,6 +598,9 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
     return `$${num}`;
   };
 
+  const fmtPct = (v) => (v !== null && v !== undefined) ? (v * 100).toFixed(1) + '%' : 'N/A';
+  const fmtNum = (v, decimals = 2) => (v !== null && v !== undefined) ? Number(v).toFixed(decimals) : 'N/A';
+
   const getScoredStocks = () => {
     if (!stocks || stocks.length === 0) return [];
     const safeSubs = subSelections || {};
@@ -599,11 +608,18 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
     return stocks
       .map(stock => ({
         ...stock,
-        name: stockDetails[stock.ticker]?.sector ? stock.ticker : stock.ticker,
         score: scoreStock(stock, stockDetails[stock.ticker], selectedFactors, safeSubs, safeWeights),
       }))
       .filter(stock => stock.score >= MATCH_THRESHOLD)
-      .sort((a, b) => b.score - a.score || a.ticker.localeCompare(b.ticker));
+      .sort((a, b) => b.score - a.score || a.ticker.localeCompare(b.ticker))
+      .slice(0, 50);
+  };
+
+  const formatTimestamp = (ts) => {
+    if (!ts) return '';
+    const date = ts.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    const time = ts.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    return `Data as of ${date} at ${time}`;
   };
 
   if (!selectedFactors || selectedFactors.length === 0) {
@@ -621,18 +637,29 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
   const scoredStocks = getScoredStocks();
   const progressPct = progressTotal > 0 ? Math.round((progress / progressTotal) * 100) : 0;
 
+  const subtitleText = scoring
+    ? `Scoring S&P 500 stocks against your factors...`
+    : scoredStocks.length >= 50
+      ? `Top 50 stocks matched your factors. Click a row for details.`
+      : `${scoredStocks.length} stocks matched your factors. Click a row for details.`;
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
           <h1 style={styles.title}>Stock Screener</h1>
-          <p style={styles.subtitle}>
-            {scoring
-              ? `Scoring S&P 500 stocks against your factors...`
-              : `${scoredStocks.length} stocks matched your factors. Click a row for details.`}
-          </p>
+          <p style={styles.subtitle}>{subtitleText}</p>
+          {dataTimestamp && !scoring && (
+            <p style={styles.dataTimestamp}>{formatTimestamp(dataTimestamp)}</p>
+          )}
         </div>
-        <button onClick={fetchStocks} style={styles.refreshBtn} disabled={scoring || loading}>Refresh</button>
+        <button
+          onClick={() => fetchStocks(true)}
+          style={styles.refreshBtn}
+          disabled={scoring || loading}
+        >
+          Re-screen
+        </button>
       </div>
 
       <div style={styles.factorTags}>
@@ -671,6 +698,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
       {!loading && stocks.length > 0 && (
         <div style={styles.tableWrapper}>
           <div style={styles.tableHeader}>
+            <span style={styles.colArrow}></span>
             <span style={styles.colRank}>#</span>
             <span style={styles.col1}>Ticker</span>
             <span style={styles.col2}>Company / Sector</span>
@@ -688,12 +716,25 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
             const scoreColor = score >= 75 ? '#4ade80' : score >= 60 ? '#facc15' : '#f87171';
             const scoreBg = score >= 75 ? '#0f2a1a' : score >= 60 ? '#1a1a0f' : '#1a0f0f';
 
+            const revenueGrowth = (detail?.revenue0 && detail?.revenue1 && detail.revenue1 > 0)
+              ? ((detail.revenue0 - detail.revenue1) / detail.revenue1)
+              : null;
+
             return (
               <div key={stock.ticker}>
                 <div
                   style={{ ...styles.tableRow, ...(isExpanded ? styles.tableRowExpanded : {}) }}
                   onClick={() => toggleExpand(stock.ticker)}
                 >
+                  <span style={styles.colArrow}>
+                    <span style={{
+                      display: 'inline-block',
+                      fontSize: '10px',
+                      color: '#475569',
+                      transform: isExpanded ? 'rotate(90deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.2s ease',
+                    }}>▶</span>
+                  </span>
                   <span style={styles.colRank}><span style={styles.rankNum}>{index + 1}</span></span>
                   <span style={styles.col1}><span style={styles.ticker}>{stock.ticker}</span></span>
                   <span style={styles.col2}>
@@ -768,6 +809,47 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                             <span style={styles.detailValue}>{detail.employees ? detail.employees.toLocaleString() : 'N/A'}</span>
                           </div>
                           <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>P/E Ratio</span>
+                            <span style={styles.detailValue}>{fmtNum(detail.peRatio)}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>P/B Ratio</span>
+                            <span style={styles.detailValue}>{fmtNum(detail.pbRatio)}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>ROIC</span>
+                            <span style={styles.detailValue}>{fmtPct(detail.roic)}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Debt / Equity</span>
+                            <span style={styles.detailValue}>{fmtNum(detail.debtToEquity)}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Current Ratio</span>
+                            <span style={styles.detailValue}>{fmtNum(detail.currentRatio)}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Dividend Yield</span>
+                            <span style={styles.detailValue}>{fmtPct(detail.dividendYield)}</span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>Revenue Growth YoY</span>
+                            <span style={{
+                              ...styles.detailValue,
+                              color: revenueGrowth !== null ? (revenueGrowth >= 0 ? '#4ade80' : '#f87171') : '#f1f5f9',
+                            }}>
+                              {fmtPct(revenueGrowth)}
+                            </span>
+                          </div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>FCF / Share</span>
+                            <span style={styles.detailValue}>
+                              {detail.freeCashFlowPerShare !== null && detail.freeCashFlowPerShare !== undefined
+                                ? '$' + Number(detail.freeCashFlowPerShare).toFixed(2)
+                                : 'N/A'}
+                            </span>
+                          </div>
+                          <div style={styles.detailItem}>
                             <span style={styles.detailLabel}>Website</span>
                             <span style={styles.detailValue}>{detail.website || 'N/A'}</span>
                           </div>
@@ -802,6 +884,7 @@ const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '24px' },
   title: { fontSize: '28px', fontWeight: '700', marginBottom: '8px' },
   subtitle: { color: '#94a3b8', fontSize: '15px', margin: 0 },
+  dataTimestamp: { color: '#475569', fontSize: '12px', margin: '4px 0 0 0' },
   refreshBtn: { background: 'transparent', border: '1px solid #334155', color: '#94a3b8', padding: '8px 16px', borderRadius: '8px', fontSize: '14px', cursor: 'pointer' },
   factorTags: { display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '24px' },
   tag: { background: '#0f2a1a', border: '1px solid #4ade80', color: '#4ade80', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', fontWeight: '600' },
@@ -818,9 +901,10 @@ const styles = {
   emptyText: { fontSize: '18px', color: '#f1f5f9', marginBottom: '8px' },
   emptySubtext: { color: '#94a3b8', fontSize: '14px' },
   tableWrapper: { border: '1px solid #1e293b', borderRadius: '12px', overflow: 'hidden' },
-  tableHeader: { display: 'grid', gridTemplateColumns: '40px 80px 1fr 120px 130px 80px 140px', padding: '12px 20px', background: '#0f172a', borderBottom: '1px solid #1e293b', fontSize: '12px', fontWeight: '600', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' },
-  tableRow: { display: 'grid', gridTemplateColumns: '40px 80px 1fr 120px 130px 80px 140px', padding: '16px 20px', borderBottom: '1px solid #1e293b', cursor: 'pointer', alignItems: 'center', background: '#0a0f1e', transition: 'background 0.1s ease' },
+  tableHeader: { display: 'grid', gridTemplateColumns: '24px 40px 80px 1fr 120px 130px 80px 140px', padding: '12px 20px', background: '#0f172a', borderBottom: '1px solid #1e293b', fontSize: '12px', fontWeight: '600', color: '#475569', textTransform: 'uppercase', letterSpacing: '0.06em' },
+  tableRow: { display: 'grid', gridTemplateColumns: '24px 40px 80px 1fr 120px 130px 80px 140px', padding: '16px 20px', borderBottom: '1px solid #1e293b', cursor: 'pointer', alignItems: 'center', background: '#0a0f1e', transition: 'background 0.1s ease' },
   tableRowExpanded: { background: '#0f172a' },
+  colArrow: { display: 'flex', alignItems: 'center', justifyContent: 'center' },
   colRank: { display: 'flex', alignItems: 'center' },
   rankNum: { fontSize: '12px', color: '#475569', fontWeight: '600' },
   col1: { display: 'flex', alignItems: 'center' },
