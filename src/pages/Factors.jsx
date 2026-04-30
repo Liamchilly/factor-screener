@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 const SECTIONS = [
   {
-    section: 'Valuation & Size',
+    section: 'Valuation',
     factors: [
       {
         id: 'market_cap',
@@ -37,25 +37,15 @@ const SECTIONS = [
         label: 'Reasonable Valuation',
         description: 'Screens for stocks trading at a discount to estimated intrinsic value. Combines P/E, P/B, and EV/EBITDA to identify companies priced below fair value without requiring deep distress.',
       },
-    ],
-  },
-  {
-    section: 'Growth',
-    factors: [
-      {
-        id: 'quality_growth',
-        label: 'Quality Growth',
-        description: 'Targets companies with consistent revenue and earnings growth backed by strong fundamentals. Differs from pure growth investing by requiring profitability alongside expansion.',
-      },
-      {
-        id: 'high_revenue_growth',
-        label: 'High Revenue Growth',
-        description: 'Screens for companies growing revenue at above-market rates. Strong top-line growth, particularly when paired with expanding margins, is a leading indicator of future earnings power and market share gains.',
-      },
       {
         id: 'moderate_pe',
         label: 'Moderate P/E / PEG',
         description: 'Targets stocks with a Price/Earnings ratio reasonable relative to growth rate (PEG ratio). A PEG near or below 1.0 suggests the market may not be fully pricing in the company\'s growth potential.',
+      },
+      {
+        id: 'quality_growth',
+        label: 'Quality Growth',
+        description: 'Targets companies with consistent revenue and earnings growth backed by strong fundamentals. Differs from pure growth investing by requiring profitability alongside expansion.',
       },
     ],
   },
@@ -73,11 +63,6 @@ const SECTIONS = [
         description: 'Return on Invested Capital measures how efficiently a company generates returns from its capital base. High ROIC (typically >15%) is a hallmark of businesses with durable competitive advantages and compounding potential.',
       },
       {
-        id: 'consistent_margins',
-        label: 'Consistent Margins',
-        description: 'Screens for companies that maintain stable or expanding operating and net margins over time. Consistent margins signal pricing power, operational discipline, and protection from competitive pressure.',
-      },
-      {
         id: 'earnings_consistency',
         label: 'Earnings Consistency',
         description: 'Filters for companies with uninterrupted positive earnings over multiple years. Consistent earnings reduce downside risk and signal a resilient business model that can weather economic cycles.',
@@ -87,11 +72,11 @@ const SECTIONS = [
         label: 'Stable Earnings',
         description: 'Targets companies with low earnings volatility quarter-over-quarter and year-over-year. Stability signals predictable cash generation and reduces the risk of earnings surprises that can compress multiples.',
       },
-    ],
-  },
-  {
-    section: 'Financial Health',
-    factors: [
+      {
+        id: 'high_revenue_growth',
+        label: 'High Revenue Growth',
+        description: 'Screens for companies growing revenue at above-market rates. Strong top-line growth, particularly when paired with expanding margins, is a leading indicator of future earnings power and market share gains.',
+      },
       {
         id: 'financial_health',
         label: 'Financial Health',
@@ -110,7 +95,7 @@ const SECTIONS = [
     ],
   },
   {
-    section: 'Cash Flow & Income',
+    section: 'Income & Dividends',
     factors: [
       {
         id: 'cash_flow',
@@ -135,7 +120,7 @@ const SECTIONS = [
     ],
   },
   {
-    section: 'Price & Market Behavior',
+    section: 'Risk & Market Behavior',
     factors: [
       {
         id: 'momentum',
@@ -155,6 +140,7 @@ const SECTIONS = [
 ];
 
 const COMING_SOON = [
+  { id: 'consistent_margins', label: 'Consistent Margins' },
   { id: 'moat',              label: 'Business Moat' },
   { id: 'tam_growth',        label: 'TAM Expansion' },
   { id: 'insider',           label: 'Insider & Institutional Conviction' },

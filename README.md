@@ -1,4 +1,24 @@
-# Getting Started with Create React App
+# Bullet Investing
+
+A full-featured investing platform built with React. Factor-based stock screener, market overview, congressional trades, institutional 13F holdings, investing education, and more.
+
+## Features
+
+- **Home** — Watchlists with live prices + market overview (S&P 500, Nasdaq, Dow, Russell 3000, VIX)
+- **Markets** — Stock search with candlestick charts, key stats, and company info
+- **Invest** — Strategy selector, factor screener, stock screener, portfolio planner
+- **Insider Trades** — Congressional stock disclosures + big investor 13F holdings (Buffett, Ackman, Burry, etc.)
+- **Learn** — Seven investing lessons, quizzes, and a full glossary
+- **Ask AI** — Links to Claude AI for investing questions
+
+## Setup
+
+Requires a `.env` file with:
+
+```
+REACT_APP_POLYGON_API_KEY=your_polygon_key
+REACT_APP_FMP_API_KEY=your_fmp_key  (optional)
+```
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 

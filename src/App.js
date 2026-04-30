@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import Navbar from './components/Navbar';
+import Sidebar from './components/Sidebar';
 import Strategy from './pages/Strategy';
 import Factors from './pages/Factors';
 import Screener from './pages/Screener';
 import Portfolio from './pages/Portfolio';
+import Home from './pages/Home';
+import Markets from './pages/Markets';
+import InsiderTrades from './pages/InsiderTrades';
+import Learn from './pages/Learn';
+import AskAI from './pages/AskAI';
 
 export const ThemeContext = React.createContext();
 export const useTheme = () => React.useContext(ThemeContext);
@@ -83,9 +88,23 @@ const darkTheme = {
   gradientSubtle: 'linear-gradient(135deg, #0a0f1e 0%, #0f1f14 100%)',
 };
 
-function AppInner() {
+const TAB_DEFAULTS = {
+  home: null,
+  markets: 'search',
+  invest: 'strategy',
+  insider: 'congress',
+  learn: 'getting-started',
+  askai: null,
+};
+
+function App() {
   const [isDark, setIsDark] = useState(false);
   const theme = isDark ? darkTheme : lightTheme;
+
+  const [activeTab, setActiveTabRaw] = useState('home');
+  const [activeSubPage, setActiveSubPage] = useState(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pendingSearch, setPendingSearch] = useState('');
 
   const [selectedFactors, setSelectedFactors] = useState([]);
   const [subSelections, setSubSelections] = useState({});
@@ -98,78 +117,143 @@ function AppInner() {
   const [initialFactors, setInitialFactors] = useState([]);
   const [initialSubSelections, setInitialSubSelections] = useState({});
   const [initialWeights, setInitialWeights] = useState({});
-  const navigate = useNavigate();
+
+  const setActiveTab = (tab) => {
+    setActiveTabRaw(tab);
+    setActiveSubPage(TAB_DEFAULTS[tab]);
+  };
+
+  const handleSearch = (query) => {
+    setSearchQuery(query);
+    setActiveTabRaw('markets');
+    setActiveSubPage('search');
+  };
 
   const handleViewStocks = (factors, subs, w) => {
     setSelectedFactors(factors || []);
     setSubSelections(subs || {});
     setWeights(w || {});
-    navigate('/screener');
+    setActiveSubPage('screener');
   };
 
-  const handleViewPortfolio = () => navigate('/portfolio');
+  const handleViewPortfolio = () => setActiveSubPage('portfolio');
 
   const handleSelectStrategy = (factors, subs, initialW) => {
     setInitialFactors(factors || []);
     setInitialSubSelections(subs || {});
     setInitialWeights(initialW || {});
     setFactorsKey(prev => prev + 1);
-    navigate('/factors');
+    setActiveSubPage('factors');
+  };
+
+  const hasSidebar = !['home', 'askai'].includes(activeTab);
+
+  const renderContent = () => {
+    if (activeTab === 'home') {
+      return <Home theme={theme} isDark={isDark} />;
+    }
+    if (activeTab === 'markets') {
+      return (
+        <Markets
+          theme={theme}
+          isDark={isDark}
+          activeSubPage={activeSubPage}
+          searchQuery={searchQuery}
+        />
+      );
+    }
+    if (activeTab === 'invest') {
+      if (activeSubPage === 'factors') {
+        return (
+          <Factors
+            key={factorsKey}
+            initialFactors={initialFactors}
+            initialSubSelections={initialSubSelections}
+            initialWeights={initialWeights}
+            onViewStocks={handleViewStocks}
+            theme={theme}
+          />
+        );
+      }
+      if (activeSubPage === 'screener') {
+        return (
+          <Screener
+            selectedFactors={selectedFactors}
+            subSelections={subSelections}
+            weights={weights}
+            portfolio={portfolio}
+            setPortfolio={setPortfolio}
+            cachedResults={cachedResults}
+            setCachedResults={setCachedResults}
+            cacheKey={cacheKey}
+            setCacheKey={setCacheKey}
+            theme={theme}
+            isDark={isDark}
+            onViewPortfolio={handleViewPortfolio}
+          />
+        );
+      }
+      if (activeSubPage === 'portfolio') {
+        return (
+          <Portfolio
+            portfolio={portfolio}
+            setPortfolio={setPortfolio}
+            portfolioTotal={portfolioTotal}
+            setPortfolioTotal={setPortfolioTotal}
+            theme={theme}
+            isDark={isDark}
+          />
+        );
+      }
+      return <Strategy onSelectStrategy={handleSelectStrategy} theme={theme} />;
+    }
+    if (activeTab === 'insider') {
+      return <InsiderTrades theme={theme} isDark={isDark} activeSubPage={activeSubPage} />;
+    }
+    if (activeTab === 'learn') {
+      return (
+        <Learn
+          theme={theme}
+          isDark={isDark}
+          activeSubPage={activeSubPage}
+          setActiveSubPage={setActiveSubPage}
+        />
+      );
+    }
+    if (activeTab === 'askai') {
+      return <AskAI theme={theme} />;
+    }
+    return null;
   };
 
   return (
     <ThemeContext.Provider value={{ isDark, setIsDark, theme }}>
-      <div style={{ background: isDark ? '#0a0f1e' : '#f8f9fb', minHeight: '100vh' }}>
-        <Navbar theme={theme} isDark={isDark} setIsDark={setIsDark} />
-        <Routes>
-          <Route path="/" element={<Strategy onSelectStrategy={handleSelectStrategy} theme={theme} />} />
-          <Route
-            path="/factors"
-            element={
-              <Factors
-                key={factorsKey}
-                initialFactors={initialFactors}
-                initialSubSelections={initialSubSelections}
-                initialWeights={initialWeights}
-                onViewStocks={handleViewStocks}
-                theme={theme}
-              />
-            }
-          />
-          <Route
-            path="/screener"
-            element={
-              <Screener
-                selectedFactors={selectedFactors}
-                subSelections={subSelections || {}}
-                weights={weights || {}}
-                portfolio={portfolio}
-                setPortfolio={setPortfolio}
-                cachedResults={cachedResults}
-                setCachedResults={setCachedResults}
-                cacheKey={cacheKey}
-                setCacheKey={setCacheKey}
-                theme={theme}
-                isDark={isDark}
-                onViewPortfolio={handleViewPortfolio}
-              />
-            }
-          />
-          <Route
-            path="/portfolio"
-            element={<Portfolio portfolio={portfolio} setPortfolio={setPortfolio} portfolioTotal={portfolioTotal} setPortfolioTotal={setPortfolioTotal} theme={theme} isDark={isDark} />}
-          />
-        </Routes>
+      <div style={{ background: theme.bg, minHeight: '100vh', fontFamily: 'Inter, -apple-system, sans-serif' }}>
+        <Navbar
+          theme={theme}
+          isDark={isDark}
+          setIsDark={setIsDark}
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          pendingSearch={pendingSearch}
+          setPendingSearch={setPendingSearch}
+          onSearch={handleSearch}
+        />
+        <div style={{ display: 'flex', minHeight: 'calc(100vh - 56px)' }}>
+          {hasSidebar && (
+            <Sidebar
+              activeTab={activeTab}
+              activeSubPage={activeSubPage}
+              setActiveSubPage={setActiveSubPage}
+              theme={theme}
+            />
+          )}
+          <div style={{ flex: 1, overflow: 'auto', minWidth: 0 }}>
+            {renderContent()}
+          </div>
+        </div>
       </div>
     </ThemeContext.Provider>
-  );
-}
-
-function App() {
-  return (
-    <BrowserRouter>
-      <AppInner />
-    </BrowserRouter>
   );
 }
 

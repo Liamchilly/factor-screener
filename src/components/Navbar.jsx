@@ -1,61 +1,97 @@
 import React from 'react';
-import { Link, useLocation } from 'react-router-dom';
 
-function Navbar({ theme, isDark, setIsDark }) {
-  const location = useLocation();
+const TABS = [
+  { id: 'home', label: 'Home' },
+  { id: 'markets', label: 'Markets' },
+  { id: 'invest', label: 'Invest' },
+  { id: 'insider', label: 'Insider Trades' },
+  { id: 'learn', label: 'Learn' },
+  { id: 'askai', label: 'Ask AI' },
+];
 
-  const tabs = [
-    { path: '/', label: 'Strategy' },
-    { path: '/factors', label: 'Factors' },
-    { path: '/screener', label: 'Stock Screener' },
-    { path: '/portfolio', label: 'My Portfolio' },
-  ];
+function Navbar({ theme, isDark, setIsDark, activeTab, setActiveTab, pendingSearch, setPendingSearch, onSearch }) {
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && pendingSearch.trim()) {
+      onSearch(pendingSearch.trim());
+      setPendingSearch('');
+    }
+  };
 
   return (
     <nav style={{
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'space-between',
-      padding: '0 32px',
+      padding: '0 20px',
       height: '56px',
       background: theme.navBg,
       borderBottom: `1px solid ${theme.navBorder}`,
       boxShadow: theme.navShadow,
-      position: 'relative',
-      zIndex: 10,
+      position: 'sticky',
+      top: 0,
+      zIndex: 100,
     }}>
       <div style={{
         color: theme.accent,
-        fontWeight: '600',
-        fontSize: '18px',
-        letterSpacing: '-0.01em',
+        fontWeight: '700',
+        fontSize: '16px',
+        letterSpacing: '-0.02em',
         flexShrink: 0,
+        marginRight: '16px',
+        whiteSpace: 'nowrap',
       }}>
-        FactorScreener
+        Bullet Investing
       </div>
 
-      <div style={{ display: 'flex', gap: '4px' }}>
-        {tabs.map(tab => {
-          const isActive = location.pathname === tab.path;
+      <div style={{ display: 'flex', gap: '2px', flexShrink: 0 }}>
+        {TABS.map(tab => {
+          const isActive = activeTab === tab.id;
           return (
-            <Link
-              key={tab.path}
-              to={tab.path}
+            <button
+              key={tab.id}
+              onClick={() => setActiveTab(tab.id)}
               style={{
                 color: isActive ? theme.accent : theme.textSecondary,
-                textDecoration: 'none',
-                padding: '6px 14px',
-                fontSize: '14px',
-                fontWeight: '500',
+                background: 'none',
+                border: 'none',
                 borderBottom: isActive ? `2px solid ${theme.accent}` : '2px solid transparent',
-                lineHeight: '44px',
+                padding: '0 11px',
+                height: '56px',
+                fontSize: '13px',
+                fontWeight: isActive ? '600' : '500',
+                cursor: 'pointer',
+                lineHeight: '56px',
                 transition: 'color 0.15s ease',
+                whiteSpace: 'nowrap',
+                fontFamily: 'Inter, sans-serif',
               }}
             >
               {tab.label}
-            </Link>
+            </button>
           );
         })}
+      </div>
+
+      <div style={{ flex: 1, display: 'flex', justifyContent: 'center', padding: '0 12px' }}>
+        <input
+          type="text"
+          value={pendingSearch}
+          onChange={e => setPendingSearch(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder="Search stocks..."
+          style={{
+            width: '240px',
+            height: '32px',
+            background: theme.inputBg,
+            border: `1px solid ${theme.inputBorder}`,
+            borderRadius: '20px',
+            fontSize: '13px',
+            padding: '0 14px',
+            color: theme.text,
+            outline: 'none',
+            fontFamily: 'Inter, sans-serif',
+          }}
+        />
       </div>
 
       <button
