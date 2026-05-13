@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createChart, CandlestickSeries } from 'lightweight-charts';
+import marketData from '../data/marketData.json';
 
 const POLYGON_KEY = process.env.REACT_APP_POLYGON_API_KEY;
 const FMP_KEY = process.env.REACT_APP_FMP_API_KEY;
@@ -597,110 +598,45 @@ function scoreStock(stock, detail, selectedFactors, subSelections, weights) {
 function Screener({ selectedFactors, subSelections, weights, portfolio, setPortfolio, cachedResults, setCachedResults, cacheKey, setCacheKey, theme, isDark, onViewPortfolio }) {
   const [expanded, setExpanded] = useState(null);
   const [stockDetails, setStockDetails] = useState({});
-  const [detailsLoading, setDetailsLoading] = useState({});
 
-  const buildFmpData = (metricsJson, incomeJson, balanceJson) => {
-    const m = Array.isArray(metricsJson) ? metricsJson[0] : null;
-    const i0 = Array.isArray(incomeJson) ? incomeJson[0] : null;
-    const i1 = Array.isArray(incomeJson) ? incomeJson[1] : null;
-    const b = Array.isArray(balanceJson) ? balanceJson[0] : null;
-    if (!m) return {};
-    return {
-      peRatio:             m.peRatio             ?? null,
-      pbRatio:             m.pbRatio             ?? null,
-      earningsYield:       m.earningsYield       ?? null,
-      dividendYield:       m.dividendYield       ?? null,
-      payoutRatio:         m.payoutRatio         ?? null,
-      debtToEquity:        m.debtToEquity        ?? null,
-      currentRatio:        m.currentRatio        ?? null,
-      roic:                m.roic                ?? null,
-      roe:                 m.roe                 ?? null,
-      freeCashFlowPerShare: m.freeCashFlowPerShare ?? null,
-      revenuePerShare:     m.revenuePerShare     ?? null,
-      revenue0:            i0?.revenue           ?? null,
-      revenue1:            i1?.revenue           ?? null,
-      grossMargin0:        i0?.grossProfitRatio  ?? null,
-      grossMargin1:        i1?.grossProfitRatio  ?? null,
-      operatingMargin0:    i0?.operatingIncomeRatio ?? null,
-      operatingMargin1:    i1?.operatingIncomeRatio ?? null,
-      netMargin0:          i0?.netIncomeRatio    ?? null,
-      netMargin1:          i1?.netIncomeRatio    ?? null,
-      eps0:                i0?.eps               ?? null,
-      eps1:                i1?.eps               ?? null,
-      totalDebt:           b?.totalDebt          ?? null,
-      totalAssets:         b?.totalAssets        ?? null,
-      cash:                b?.cashAndCashEquivalents ?? null,
-    };
-  };
+  useEffect(() => {
+    setStockDetails(marketData.stocks || {});
+  }, []);
 
-  const fetchStockDetails = async (ticker) => {
-    if (stockDetails[ticker]?._complete) return;
-    if (detailsLoading[ticker]) return;
-    setDetailsLoading(prev => ({ ...prev, [ticker]: true }));
-
+  const fetchLivePrice = async (ticker) => {
     try {
-      // STEP 1: Price data (fastest)
-      const priceRes = await fetch(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`);
-      const priceData = await priceRes.json();
-      const price = priceData.results?.[0] || {};
+      const res = await fetch(
+        `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`
+      );
+      const data = await res.json();
+      const price = data.results?.[0];
+      if (!price) return;
       setStockDetails(prev => ({
         ...prev,
         [ticker]: {
-          ...(prev[ticker] || {}),
-          close: price.c != null ? Number(price.c) : null,
-          open: price.o != null ? Number(price.o) : null,
-          high: price.h != null ? Number(price.h) : null,
-          low: price.l != null ? Number(price.l) : null,
-          volume: price.v != null ? Number(price.v) : null,
-          change: price.c != null && price.o != null ? (((price.c - price.o) / price.o) * 100).toFixed(2) : null,
+          ...prev[ticker],
+          close:  price.c != null ? Number(price.c) : prev[ticker]?.close,
+          open:   price.o != null ? Number(price.o) : prev[ticker]?.open,
+          high:   price.h != null ? Number(price.h) : prev[ticker]?.high,
+          low:    price.l != null ? Number(price.l) : prev[ticker]?.low,
+          volume: price.v != null ? Number(price.v) : prev[ticker]?.volume,
+          change: price.c && price.o
+            ? (((price.c - price.o) / price.o) * 100).toFixed(2)
+            : prev[ticker]?.change,
         },
       }));
-
-      // STEP 3: Reference data
-      const detailRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`);
-      const detailData = await detailRes.json();
-      const detail = detailData.results || {};
-      setStockDetails(prev => ({
-        ...prev,
-        [ticker]: {
-          ...(prev[ticker] || {}),
-          name: detail.name != null ? detail.name : null,
-          description: detail.description != null ? detail.description : null,
-          sector: detail.sic_description != null ? detail.sic_description : (TICKER_SECTORS[ticker] || null),
-          employees: detail.total_employees != null ? detail.total_employees : null,
-          website: detail.homepage_url != null ? detail.homepage_url : null,
-          marketCap: detail.market_cap != null ? Number(detail.market_cap) : null,
-        },
-      }));
-
-      // STEP 4: FMP fundamentals (slowest)
-      const [fmpMetricsRes, fmpIncomeRes, fmpBalanceRes] = await Promise.all([
-        fetch(`https://financialmodelingprep.com/api/v3/key-metrics/${ticker}?limit=1&apiKey=${FMP_KEY}`),
-        fetch(`https://financialmodelingprep.com/api/v3/income-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
-        fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
-      ]);
-      const [metricsJson, incomeJson, balanceJson] = await Promise.all([
-        fmpMetricsRes.json(),
-        fmpIncomeRes.json(),
-        fmpBalanceRes.json(),
-      ]);
-      const fmpData = buildFmpData(metricsJson, incomeJson, balanceJson);
-      setStockDetails(prev => ({
-        ...prev,
-        [ticker]: { ...(prev[ticker] || {}), ...fmpData, _complete: true },
-      }));
-
-    } catch (err) {
-      console.warn(`fetchStockDetails error for ${ticker}:`, err);
-      setStockDetails(prev => ({ ...prev, [ticker]: { ...(prev[ticker] || {}), error: true } }));
+    } catch (e) {
+      // silently fail — JSON data already loaded as fallback
     }
-
-    setDetailsLoading(prev => ({ ...prev, [ticker]: false }));
   };
 
   const toggleExpand = (ticker) => {
-    if (expanded === ticker) { setExpanded(null); }
-    else { setExpanded(ticker); fetchStockDetails(ticker); }
+    if (expanded === ticker) {
+      setExpanded(null);
+    } else {
+      setExpanded(ticker);
+      fetchLivePrice(ticker);
+    }
   };
 
   const addToPortfolio = (stock, e) => {
@@ -750,7 +686,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
   }
 
   const scoredStocks = getScoredStocks();
-  const subtitleText = `${scoredStocks.length} stocks matched your factors. Click any row to load its data.`;
+  const subtitleText = `${scoredStocks.length} stocks matched your factors.`;
 
   return (
     <div style={styles.container}>
@@ -765,9 +701,6 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
             style={{ background: t.accent, color: isDark ? '#0a0f1e' : '#ffffff', border: 'none', borderRadius: '8px', padding: '8px 16px', fontSize: '14px', fontWeight: '600', cursor: 'pointer' }}
           >
             View Portfolio →
-          </button>
-          <button onClick={() => setStockDetails({})} style={styles.refreshBtn}>
-            Re-screen
           </button>
         </div>
       </div>
@@ -849,11 +782,16 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                       <CandlestickChart ticker={stock.ticker} theme={theme} />
                     </div>
 
-                    {/* Price grid — shows as soon as step 1 completes */}
                     {detail?.close != null ? (
                       <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: '16px', marginTop: '16px' }}>
                         <div style={styles.detailGrid}>
-                          <div style={styles.detailItem}><span style={styles.detailLabel}>Last Close</span><span style={styles.detailValue}>{'$' + Number(detail.close).toFixed(2)}</span></div>
+                          <div style={styles.detailItem}>
+                            <span style={styles.detailLabel}>
+                              Last Close
+                              <span style={{ fontSize: '10px', background: t.accentBg, color: t.accent, border: `1px solid ${t.accentBorder}`, padding: '1px 6px', borderRadius: '20px', marginLeft: '6px', fontWeight: '600' }}>Live</span>
+                            </span>
+                            <span style={styles.detailValue}>{'$' + Number(detail.close).toFixed(2)}</span>
+                          </div>
                           <div style={styles.detailItem}><span style={styles.detailLabel}>Day Open</span><span style={styles.detailValue}>{detail.open != null ? '$' + Number(detail.open).toFixed(2) : 'N/A'}</span></div>
                           <div style={styles.detailItem}><span style={styles.detailLabel}>Day High</span><span style={styles.detailValue}>{detail.high != null ? '$' + Number(detail.high).toFixed(2) : 'N/A'}</span></div>
                           <div style={styles.detailItem}><span style={styles.detailLabel}>Day Low</span><span style={styles.detailValue}>{detail.low != null ? '$' + Number(detail.low).toFixed(2) : 'N/A'}</span></div>
@@ -866,11 +804,8 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                           <div style={styles.detailItem}><span style={styles.detailLabel}>Volume</span><span style={styles.detailValue}>{detail.volume != null ? detail.volume.toLocaleString() : 'N/A'}</span></div>
                         </div>
                       </div>
-                    ) : (
-                      <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: '16px', marginTop: '16px', color: t.textMuted, fontSize: '13px' }}>Loading prices...</div>
                     )}
 
-                    {/* Company info — shows as soon as step 3 completes */}
                     {detail?.name != null ? (
                       <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: '16px', marginTop: '16px' }}>
                         <div style={styles.detailGrid}>
@@ -892,8 +827,6 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                           </p>
                         )}
                       </div>
-                    ) : (
-                      detail != null && <div style={{ color: t.textMuted, fontSize: '13px', marginTop: '8px' }}>Loading company info...</div>
                     )}
 
                     {detail?.error && <div style={styles.detailLoading}>Could not load details for this stock.</div>}

@@ -94,10 +94,7 @@ function WatchlistsPanel({ theme }) {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h2 style={{ fontSize: '20px', fontWeight: '700', color: t.text, margin: 0, letterSpacing: '-0.02em' }}>
-          My Watchlists
-        </h2>
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: (creating || watchlists.length > 0) ? '12px' : '0' }}>
         <button
           onClick={() => setCreating(true)}
           style={{
@@ -117,7 +114,7 @@ function WatchlistsPanel({ theme }) {
       </div>
 
       {creating && (
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
           <input
             autoFocus
             type="text"
@@ -142,13 +139,7 @@ function WatchlistsPanel({ theme }) {
         </div>
       )}
 
-      {watchlists.length === 0 && !creating && (
-        <div style={{ color: t.textMuted, fontSize: '14px', padding: '32px 0', textAlign: 'center' }}>
-          No watchlists yet. Create one to start tracking stocks.
-        </div>
-      )}
-
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {watchlists.map(wl => {
           const isOpen = !!expanded[wl.id];
           return (

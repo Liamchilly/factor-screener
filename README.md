@@ -22,6 +22,24 @@ REACT_APP_FMP_API_KEY=your_fmp_key  (optional)
 
 This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
 
+## Weekly Data Update
+
+This app uses pre-fetched market data for instant loading. To update the data run:
+
+```
+npm run update-data
+```
+
+This takes 30-40 minutes and fetches all stock data within Polygon free tier limits. After it completes:
+
+```
+git add .
+git commit -m "weekly data update"
+git push origin main
+```
+
+Vercel will automatically redeploy with fresh data.
+
 ## Available Scripts
 
 In the project directory, you can run:
