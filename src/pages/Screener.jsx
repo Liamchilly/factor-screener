@@ -804,7 +804,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                           <div style={styles.detailItem}><span style={styles.detailLabel}>Volume</span><span style={styles.detailValue}>{detail.volume != null ? detail.volume.toLocaleString() : 'N/A'}</span></div>
                         </div>
                       </div>
-                    )}
+                    ) : null}
 
                     {detail?.name != null ? (
                       <div style={{ borderTop: `1px solid ${t.border}`, paddingTop: '16px', marginTop: '16px' }}>
@@ -827,7 +827,7 @@ function Screener({ selectedFactors, subSelections, weights, portfolio, setPortf
                           </p>
                         )}
                       </div>
-                    )}
+                    ) : null}
 
                     {detail?.error && <div style={styles.detailLoading}>Could not load details for this stock.</div>}
                   </div>

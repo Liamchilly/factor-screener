@@ -32,6 +32,51 @@ function fetchJson(url) {
   });
 }
 
+function fetchJsonFromUrl(url) {
+  return new Promise((resolve, reject) => {
+    function doRequest(targetUrl) {
+      https.get(targetUrl, (res) => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          doRequest(res.headers.location);
+          return;
+        }
+        let data = '';
+        res.on('data', chunk => { data += chunk; });
+        res.on('end', () => {
+          try { resolve(JSON.parse(data)); }
+          catch (e) { reject(new Error('JSON parse error: ' + e.message)); }
+        });
+      }).on('error', reject);
+    }
+    doRequest(url);
+  });
+}
+
+function fetchJsonEdgar(url) {
+  return new Promise((resolve, reject) => {
+    const options = { headers: { 'User-Agent': EDGAR_AGENT } };
+    https.get(url, options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => {
+        try { resolve(JSON.parse(data)); }
+        catch (e) { reject(new Error('JSON parse error')); }
+      });
+    }).on('error', reject);
+  });
+}
+
+function fetchXmlEdgar(url) {
+  return new Promise((resolve, reject) => {
+    const options = { headers: { 'User-Agent': EDGAR_AGENT } };
+    https.get(url, options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => { resolve(data); });
+    }).on('error', reject);
+  });
+}
+
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
@@ -120,6 +165,92 @@ const SECTOR_MAP = {
   'MPC':'Energy','PSX':'Energy','VLO':'Energy','OXY':'Energy','HAL':'Energy',
   'BKR':'Energy','WMB':'Energy','OKE':'Energy',
 };
+
+const EDGAR_AGENT = 'BulletInvesting contact@bulletinvesting.com';
+
+const INVESTORS = [
+  { name: 'Warren Buffett',       fund: 'Berkshire Hathaway', cik: '0001067983' },
+  { name: 'Bill Ackman',          fund: 'Pershing Square',    cik: '0001336528' },
+  { name: 'Michael Burry',        fund: 'Scion',              cik: '0001649339' },
+  { name: 'David Tepper',         fund: 'Appaloosa',          cik: '0001656456' },
+  { name: 'Stanley Druckenmiller',fund: 'Duquesne',           cik: '0001536117' },
+  { name: 'Cathie Wood',          fund: 'ARK',                cik: '0001579982' },
+  { name: 'Ray Dalio',            fund: 'Bridgewater',        cik: '0001350694' },
+];
+
+const NAME_TO_TICKER = {
+  'APPLE': 'AAPL', 'APPLE INC': 'AAPL', 'APPLE INC.': 'AAPL',
+  'MICROSOFT': 'MSFT', 'MICROSOFT CORP': 'MSFT', 'MICROSOFT CORPORATION': 'MSFT',
+  'AMAZON': 'AMZN', 'AMAZON.COM INC': 'AMZN', 'AMAZON COM INC': 'AMZN',
+  'ALPHABET INC': 'GOOGL', 'ALPHABET': 'GOOGL',
+  'NVIDIA': 'NVDA', 'NVIDIA CORP': 'NVDA', 'NVIDIA CORPORATION': 'NVDA',
+  'META PLATFORMS': 'META', 'META PLATFORMS INC': 'META',
+  'TESLA': 'TSLA', 'TESLA INC': 'TSLA',
+  'BERKSHIRE HATHAWAY': 'BRK.B', 'BERKSHIRE HATHAWAY INC': 'BRK.B',
+  'JPMORGAN CHASE': 'JPM', 'JPMORGAN CHASE & CO': 'JPM',
+  'JOHNSON & JOHNSON': 'JNJ',
+  'VISA': 'V', 'VISA INC': 'V',
+  'UNITEDHEALTH': 'UNH', 'UNITEDHEALTH GROUP': 'UNH', 'UNITEDHEALTH GROUP INC': 'UNH',
+  'EXXON MOBIL': 'XOM', 'EXXON MOBIL CORP': 'XOM',
+  'MASTERCARD': 'MA', 'MASTERCARD INC': 'MA',
+  'PROCTER & GAMBLE': 'PG', 'PROCTER AND GAMBLE': 'PG',
+  'HOME DEPOT': 'HD', 'HOME DEPOT INC': 'HD',
+  'COCA-COLA': 'KO', 'COCA COLA': 'KO', 'COCA-COLA CO': 'KO',
+  'ABBVIE': 'ABBV', 'ABBVIE INC': 'ABBV',
+  'CHEVRON': 'CVX', 'CHEVRON CORP': 'CVX',
+  'MERCK': 'MRK', 'MERCK & CO': 'MRK',
+  'BANK OF AMERICA': 'BAC', 'BANK OF AMERICA CORP': 'BAC',
+  'PEPSICO': 'PEP', 'PEPSICO INC': 'PEP',
+  'COSTCO': 'COST', 'COSTCO WHOLESALE': 'COST', 'COSTCO WHOLESALE CORP': 'COST',
+  'BROADCOM': 'AVGO', 'BROADCOM INC': 'AVGO',
+  'ELI LILLY': 'LLY', 'ELI LILLY AND COMPANY': 'LLY',
+  'WELLS FARGO': 'WFC', 'WELLS FARGO & COMPANY': 'WFC',
+  'WALMART': 'WMT', 'WALMART INC': 'WMT',
+  'AMERICAN EXPRESS': 'AXP', 'AMERICAN EXPRESS CO': 'AXP',
+  'OCCIDENTAL PETROLEUM': 'OXY',
+  "MOODY'S": 'MCO', "MOODY'S CORP": 'MCO',
+  'HP INC': 'HPQ',
+  'CITIGROUP': 'C', 'CITIGROUP INC': 'C',
+  'KRAFT HEINZ': 'KHC', 'KRAFT HEINZ CO': 'KHC',
+  'SNOWFLAKE': 'SNOW', 'SNOWFLAKE INC': 'SNOW',
+  'AMAZON.COM': 'AMZN',
+  'TAIWAN SEMICONDUCTOR': 'TSM',
+  'NETFLIX': 'NFLX', 'NETFLIX INC': 'NFLX',
+  'ADOBE': 'ADBE', 'ADOBE INC': 'ADBE',
+  'SALESFORCE': 'CRM', 'SALESFORCE INC': 'CRM',
+  'BOOKING HOLDINGS': 'BKNG',
+  'HILTON': 'HLT', 'HILTON WORLDWIDE': 'HLT',
+};
+
+function normalizeName(name) {
+  return name.toUpperCase().replace(/[.,]/g, '').replace(/\s+/g, ' ').trim();
+}
+
+function nameToTicker(name) {
+  if (!name) return '—';
+  const norm = normalizeName(name);
+  if (NAME_TO_TICKER[norm]) return NAME_TO_TICKER[norm];
+  const stripped = norm.replace(/ (INC|CORP|CO|LTD|LLC|GROUP|HOLDING|HOLDINGS|INTERNATIONAL|WORLDWIDE)$/, '').trim();
+  return NAME_TO_TICKER[stripped] || '—';
+}
+
+function parseHoldings(xmlText) {
+  const results = [];
+  const tableRegex = /<infoTable>([\s\S]*?)<\/infoTable>/g;
+  let match;
+  while ((match = tableRegex.exec(xmlText)) !== null) {
+    const block = match[1];
+    const getName = tag => {
+      const m = block.match(new RegExp(`<${tag}[^>]*>([^<]*)<\/${tag}>`));
+      return m ? m[1].trim() : '';
+    };
+    const name = getName('nameOfIssuer');
+    const value = parseInt(getName('value') || '0') * 1000;
+    const shares = parseInt(getName('sshPrnamt') || '0');
+    results.push({ name, value, shares, ticker: nameToTicker(name) });
+  }
+  return results;
+}
 
 const MOVER_TICKERS = [
   'AAPL','MSFT','NVDA','AMZN','GOOGL','META','TSLA','JPM','V','UNH',
@@ -225,10 +356,12 @@ async function main() {
     sectorMovement: {},
     fearGreed: { vixPrice: null, spyWeekChange: null, score: null },
     stocks: {},
+    congressTrades: [],
+    bigInvestors: {},
   };
 
   // ── STEP 1: INDEX PREV + INTRADAY ──────────────────────────────────────────
-  console.log('── Step 1/6: Fetching market indices...');
+  console.log('── Step 1/8: Fetching market indices...');
   for (const ticker of ['SPY', 'QQQ', 'DIA', 'VTHR', 'VIXY']) {
     console.log(`  Fetching index: ${ticker}...`);
     try {
@@ -255,7 +388,7 @@ async function main() {
   }
 
   // ── STEP 2: SPY WEEKLY CHANGE ──────────────────────────────────────────────
-  console.log('── Step 2/6: Fetching SPY weekly change...');
+  console.log('── Step 2/8: Fetching SPY weekly change...');
   try {
     const startDate = getTradingDaysAgo(7);
     const spyWeekData = await fetchJson(
@@ -277,10 +410,10 @@ async function main() {
   output.fearGreed.score = totalWeight > 0
     ? Math.round(((vixScore ?? 0) + (spyScore ?? 0)) / totalWeight * 100)
     : null;
-  console.log(`── Step 3/6: Fear & Greed score: ${output.fearGreed.score}`);
+  console.log(`── Step 3/8: Fear & Greed score: ${output.fearGreed.score}`);
 
   // ── STEP 4: SECTOR STOCKS ──────────────────────────────────────────────────
-  console.log('── Step 4/6: Fetching sector stocks (25 tickers)...');
+  console.log('── Step 4/8: Fetching sector stocks (25 tickers)...');
   for (let i = 0; i < SECTOR_STOCKS.length; i++) {
     const ticker = SECTOR_STOCKS[i];
     console.log(`  Fetching sector stock ${i + 1}/${SECTOR_STOCKS.length}: ${ticker}...`);
@@ -305,7 +438,7 @@ async function main() {
   }
 
   // ── STEP 5: WEEKLY MOVERS ─────────────────────────────────────────────────
-  console.log('── Step 5/6: Fetching weekly movers (75 tickers)...');
+  console.log('── Step 5/8: Fetching weekly movers (75 tickers)...');
   const startDate5 = getTradingDaysAgo(7);
   const moverResults = [];
   for (let i = 0; i < MOVER_TICKERS.length; i++) {
@@ -330,8 +463,92 @@ async function main() {
   output.weeklyMovers.losers = moverResults.slice(-5).reverse();
   console.log(`  Top gainer: ${output.weeklyMovers.gainers[0]?.ticker} (${output.weeklyMovers.gainers[0]?.weeklyChange?.toFixed(2)}%)`);
 
+  // ── STEP 5b: CONGRESSIONAL TRADES ─────────────────────────────────────────
+  console.log('── Step 5b/8: Fetching congressional trades...');
+  try {
+    const data = await fetchJsonFromUrl(
+      'https://house-stock-watcher-data.s3-us-east-2.amazonaws.com/data/all_transactions.json'
+    );
+    const sorted = data
+      .filter(d => d.ticker && d.ticker !== '--')
+      .sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || ''))
+      .slice(0, 500);
+    output.congressTrades = sorted;
+    console.log('  Congressional trades fetched:', sorted.length, 'records');
+  } catch (e) {
+    console.warn('  Failed congressional trades:', e.message);
+    output.congressTrades = [];
+  }
+  await sleep(2000);
+
+  // ── STEP 5c: BIG INVESTOR 13F FILINGS ────────────────────────────────────
+  console.log('── Step 5c/8: Fetching big investor 13F filings...');
+  for (const investor of INVESTORS) {
+    console.log('  Fetching 13F for:', investor.name);
+    try {
+      const paddedCik = investor.cik.replace(/^0+/, '').padStart(10, '0');
+      const cikNum = investor.cik.replace(/^0+/, '');
+
+      const subData = await fetchJsonEdgar(
+        `https://data.sec.gov/submissions/CIK${paddedCik}.json`
+      );
+
+      const forms = subData.filings.recent.form;
+      const accNums = subData.filings.recent.accessionNumber;
+      const dates = subData.filings.recent.filingDate;
+
+      let latestIdx = -1;
+      for (let i = 0; i < forms.length; i++) {
+        if (forms[i] === '13F-HR') { latestIdx = i; break; }
+      }
+      if (latestIdx === -1) throw new Error('No 13F-HR filing found');
+
+      const accNum = accNums[latestIdx];
+      const filingDate = dates[latestIdx];
+      const accNumFlat = accNum.replace(/-/g, '');
+
+      const indexData = await fetchJsonEdgar(
+        `https://data.sec.gov/Archives/edgar/data/${cikNum}/${accNumFlat}/${accNum}-index.json`
+      );
+
+      const items = indexData.directory?.item || [];
+      const xmlFile = items.find(f =>
+        f.name.endsWith('.xml') &&
+        !f.name.toLowerCase().includes('xsl') &&
+        f.name !== 'primary_doc.xml' &&
+        !f.name.toLowerCase().includes('form13f')
+      ) || items.find(f => f.name.endsWith('.xml'));
+
+      if (!xmlFile) throw new Error('XML file not found');
+
+      const xmlText = await fetchXmlEdgar(
+        `https://data.sec.gov/Archives/edgar/data/${cikNum}/${accNumFlat}/${xmlFile.name}`
+      );
+
+      let parsed = parseHoldings(xmlText);
+      const total = parsed.reduce((s, h) => s + h.value, 0);
+      parsed = parsed
+        .map(h => ({ ...h, pct: total > 0 ? ((h.value / total) * 100).toFixed(1) : '0.0' }))
+        .sort((a, b) => b.value - a.value)
+        .slice(0, 20);
+
+      output.bigInvestors[investor.cik] = {
+        name: investor.name,
+        fund: investor.fund,
+        filingDate,
+        rows: parsed,
+        total,
+      };
+      console.log(`  ${investor.name}: ${parsed.length} holdings fetched`);
+    } catch (e) {
+      console.warn(`  Failed 13F for ${investor.name}:`, e.message);
+      output.bigInvestors[investor.cik] = { error: true };
+    }
+    await sleep(3000);
+  }
+
   // ── STEP 6: STOCK FUNDAMENTALS ─────────────────────────────────────────────
-  console.log('── Step 6/6: Fetching stock fundamentals (500 tickers, ~30 min)...');
+  console.log('── Step 6/8: Fetching stock fundamentals (500 tickers, ~30 min)...');
   for (let i = 0; i < SP500_TICKERS.length; i++) {
     const ticker = SP500_TICKERS[i];
     if ((i + 1) % 25 === 0) console.log(`  Stock fundamentals: ${i + 1}/${SP500_TICKERS.length} complete...`);

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
+import marketData from '../data/marketData.json';
 
 const EDGAR_AGENT = 'BulletInvesting contact@bulletinvesting.com';
 
@@ -72,30 +73,15 @@ function nameToTicker(name) {
 
 function CongressPage({ theme }) {
   const t = theme || {};
-  const [rows, setRows] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [filterTicker, setFilterTicker] = useState('');
   const [filterRep, setFilterRep] = useState('');
   const [filterType, setFilterType] = useState('All');
   const [filterParty, setFilterParty] = useState('All');
 
-  useEffect(() => {
-    fetch(CONGRESS_URL)
-      .then(r => r.json())
-      .then(data => {
-        const sorted = data
-          .filter(d => d.ticker && d.ticker !== '--')
-          .sort((a, b) => (b.transaction_date || '').localeCompare(a.transaction_date || ''))
-          .slice(0, 500);
-        setRows(sorted);
-        setLoading(false);
-      })
-      .catch(() => { setError('Could not load congressional data.'); setLoading(false); });
-  }, []);
+  const allRows = marketData.congressTrades || [];
 
   const filtered = useMemo(() => {
-    return rows
+    return allRows
       .filter(r => !filterTicker || (r.ticker || '').toUpperCase().includes(filterTicker.toUpperCase()))
       .filter(r => !filterRep || (r.representative || '').toLowerCase().includes(filterRep.toLowerCase()))
       .filter(r => filterType === 'All' || (r.type || '').toLowerCase().includes(filterType.toLowerCase()))
@@ -107,7 +93,7 @@ function CongressPage({ theme }) {
         return true;
       })
       .slice(0, 100);
-  }, [rows, filterTicker, filterRep, filterType, filterParty]);
+  }, [allRows, filterTicker, filterRep, filterType, filterParty]);
 
   const partyPill = (party) => {
     const p = (party || '').toLowerCase();
@@ -152,10 +138,11 @@ function CongressPage({ theme }) {
         </select>
       </div>
 
-      {loading && <div style={{ color: t.textMuted, fontSize: '14px', padding: '40px 0' }}>Loading congressional trades…</div>}
-      {error && <div style={{ color: t.textSecondary, fontSize: '14px', padding: '40px 0' }}>{error}</div>}
-
-      {!loading && !error && (
+      {allRows.length === 0 ? (
+        <div style={{ color: t.textMuted, fontSize: '14px', padding: '40px 0' }}>
+          No congressional trade data available. Run npm run update-data to fetch.
+        </div>
+      ) : (
         <div style={{ border: `1px solid ${t.border}`, borderRadius: '12px', overflow: 'hidden', boxShadow: t.shadow }}>
           <div style={{ display: 'grid', gridTemplateColumns: '100px 1fr 50px 80px 160px 120px 160px', padding: '10px 16px', background: t.tableHeader, borderBottom: `1px solid ${t.border}` }}>
             {['Date', 'Representative', '', 'Ticker', 'Company', 'Type', 'Amount'].map(h => (
@@ -186,87 +173,10 @@ function CongressPage({ theme }) {
 function BigInvestorsPage({ theme }) {
   const t = theme || {};
   const [selected, setSelected] = useState(0);
-  const [holdings, setHoldings] = useState({});
-  const [loadingIdx, setLoadingIdx] = useState(null);
-  const [errors, setErrors] = useState({});
-
-  const fetchHoldings = async (investor, idx) => {
-    if (holdings[idx] || loadingIdx === idx) return;
-    setLoadingIdx(idx);
-    try {
-      const paddedCik = investor.cik.replace(/^0+/, '').padStart(10, '0');
-      const cikNum = investor.cik.replace(/^0+/, '');
-      const subUrl = `https://data.sec.gov/submissions/CIK${paddedCik}.json`;
-      const subRes = await fetch(subUrl, { headers: { 'User-Agent': EDGAR_AGENT } });
-      if (!subRes.ok) throw new Error('EDGAR unavailable');
-      const subData = await subRes.json();
-
-      const forms = subData.filings.recent.form;
-      const accNums = subData.filings.recent.accessionNumber;
-      const dates = subData.filings.recent.filingDate;
-
-      let latestIdx = -1;
-      for (let i = 0; i < forms.length; i++) {
-        if (forms[i] === '13F-HR') { latestIdx = i; break; }
-      }
-      if (latestIdx === -1) throw new Error('No 13F-HR filing found');
-
-      const accNum = accNums[latestIdx];
-      const filingDate = dates[latestIdx];
-      const accNumFlat = accNum.replace(/-/g, '');
-
-      const indexUrl = `https://data.sec.gov/Archives/edgar/data/${cikNum}/${accNumFlat}/${accNum}-index.json`;
-      const indexRes = await fetch(indexUrl, { headers: { 'User-Agent': EDGAR_AGENT } });
-      if (!indexRes.ok) throw new Error('Index fetch failed');
-      const indexData = await indexRes.json();
-
-      const items = indexData.directory?.item || [];
-      const xmlFile = items.find(f =>
-        f.name.endsWith('.xml') &&
-        !f.name.toLowerCase().includes('xsl') &&
-        f.name !== 'primary_doc.xml' &&
-        !f.name.toLowerCase().includes('form13f')
-      ) || items.find(f => f.name.endsWith('.xml'));
-
-      if (!xmlFile) throw new Error('XML file not found');
-
-      const xmlUrl = `https://data.sec.gov/Archives/edgar/data/${cikNum}/${accNumFlat}/${xmlFile.name}`;
-      const xmlRes = await fetch(xmlUrl, { headers: { 'User-Agent': EDGAR_AGENT } });
-      const xmlText = await xmlRes.text();
-
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(xmlText, 'text/xml');
-      const tables = doc.querySelectorAll('infoTable');
-
-      let parsed = Array.from(tables).map(tbl => {
-        const name = tbl.querySelector('nameOfIssuer')?.textContent?.trim() || '';
-        const value = parseInt(tbl.querySelector('value')?.textContent?.trim() || '0') * 1000;
-        const shares = parseInt(tbl.querySelector('sshPrnamt')?.textContent?.trim() || '0');
-        return { name, value, shares, ticker: nameToTicker(name) };
-      });
-
-      const total = parsed.reduce((s, h) => s + h.value, 0);
-      parsed = parsed
-        .map(h => ({ ...h, pct: total > 0 ? ((h.value / total) * 100).toFixed(1) : '0.0' }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 20);
-
-      setHoldings(prev => ({ ...prev, [idx]: { rows: parsed, filingDate, total } }));
-    } catch (e) {
-      setErrors(prev => ({ ...prev, [idx]: true }));
-    }
-    setLoadingIdx(null);
-  };
-
-  useEffect(() => {
-    fetchHoldings(INVESTORS[selected], selected); // eslint-disable-line react-hooks/exhaustive-deps
-  }, [selected]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const investor = INVESTORS[selected];
-  const data = holdings[selected];
-  const isLoading = loadingIdx === selected;
-  const hasError = errors[selected];
-  const top10 = data?.rows?.slice(0, 10) || [];
+  const investorData = marketData.bigInvestors?.[investor.cik];
+  const top10 = investorData?.rows?.slice(0, 10) || [];
   const maxPct = top10.length ? Math.max(...top10.map(h => parseFloat(h.pct))) : 1;
 
   const fmtVal = (v) => {
@@ -302,18 +212,23 @@ function BigInvestorsPage({ theme }) {
         ))}
       </div>
 
-      {isLoading && <div style={{ color: t.textMuted, fontSize: '14px', padding: '40px 0' }}>Loading 13F filing…</div>}
-      {hasError && !isLoading && (
-        <div style={{ color: t.textSecondary, fontSize: '14px', padding: '40px 0' }}>
-          Could not load latest filing. SEC EDGAR may be temporarily unavailable.
+      {!investorData && (
+        <div style={{ color: t.textMuted, fontSize: '14px', padding: '40px 0' }}>
+          No data available. Run npm run update-data to fetch.
         </div>
       )}
 
-      {data && !isLoading && (
+      {investorData?.error && (
+        <div style={{ color: t.textSecondary, fontSize: '14px', padding: '40px 0' }}>
+          Could not load filing for this investor.
+        </div>
+      )}
+
+      {investorData && !investorData.error && (
         <>
           <div style={{ marginBottom: '20px' }}>
             <h2 style={{ fontSize: '18px', fontWeight: '700', color: t.text, margin: '0 0 4px 0' }}>{investor.name} / {investor.fund}</h2>
-            <p style={{ fontSize: '12px', color: t.textMuted, margin: 0 }}>As of {data.filingDate} · 13F filing (up to 45 days delayed) · Top 20 holdings shown</p>
+            <p style={{ fontSize: '12px', color: t.textMuted, margin: 0 }}>As of {investorData.filingDate} · 13F filing (up to 45 days delayed) · Top 20 holdings shown</p>
           </div>
 
           {top10.length > 0 && (
@@ -339,7 +254,7 @@ function BigInvestorsPage({ theme }) {
                 <span key={h} style={{ fontSize: '11px', fontWeight: '600', color: t.textMuted, textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
               ))}
             </div>
-            {data.rows.map((h, i) => (
+            {investorData.rows.map((h, i) => (
               <div key={i} style={{ display: 'grid', gridTemplateColumns: '40px 60px 1fr 120px 140px 80px', padding: '11px 16px', background: i % 2 === 0 ? t.bgCard : t.bgSecondary, borderBottom: `1px solid ${t.border}`, alignItems: 'center' }}>
                 <span style={{ fontSize: '12px', color: t.textMuted }}>{i + 1}</span>
                 <span style={{ fontSize: '13px', fontWeight: '700', color: t.accent }}>{h.ticker}</span>
