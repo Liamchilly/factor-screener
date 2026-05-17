@@ -1,4 +1,5 @@
 const https = require('https');
+const http = require('http');
 const fs = require('fs');
 const path = require('path');
 
@@ -32,24 +33,35 @@ function fetchJson(url) {
   });
 }
 
-function fetchJsonFromUrl(url) {
-  return new Promise((resolve, reject) => {
-    function doRequest(targetUrl) {
-      https.get(targetUrl, (res) => {
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          doRequest(res.headers.location);
-          return;
-        }
-        let data = '';
-        res.on('data', chunk => { data += chunk; });
-        res.on('end', () => {
-          try { resolve(JSON.parse(data)); }
-          catch (e) { reject(new Error('JSON parse error: ' + e.message)); }
-        });
-      }).on('error', reject);
+function fetchJsonFromUrl(url, redirectCount) {
+  redirectCount = redirectCount || 0
+  return new Promise(function(resolve, reject) {
+    if (redirectCount > 5) {
+      reject(new Error('Too many redirects'))
+      return
     }
-    doRequest(url);
-  });
+    const isHttps = url.startsWith('https')
+    const lib = isHttps ? https : http
+    const options = {
+      headers: { 'User-Agent': 'BulletInvesting/1.0 contact@bulletinvesting.com' }
+    }
+    lib.get(url, options, function(res) {
+      if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        resolve(fetchJsonFromUrl(res.headers.location, redirectCount + 1))
+        return
+      }
+      if (res.statusCode !== 200) {
+        reject(new Error('HTTP ' + res.statusCode + ' for ' + url))
+        return
+      }
+      let data = ''
+      res.on('data', function(chunk) { data += chunk })
+      res.on('end', function() {
+        try { resolve(JSON.parse(data)) }
+        catch(e) { reject(new Error('JSON parse error: ' + e.message)) }
+      })
+    }).on('error', reject)
+  })
 }
 
 function fetchJsonEdgar(url) {
@@ -66,7 +78,49 @@ function fetchJsonEdgar(url) {
   });
 }
 
+function fetchTextEdgar(url) {
+  return new Promise(function(resolve, reject) {
+    const options = {
+      headers: { 'User-Agent': EDGAR_AGENT }
+    }
+    https.get(url, options, function(res) {
+      let data = ''
+      res.on('data', function(chunk) { data += chunk })
+      res.on('end', function() { resolve(data) })
+    }).on('error', reject)
+  })
+}
+
+function parseHoldingsFromXml(xmlText) {
+  const results = []
+  const tableRegex = /<infoTable>([\s\S]*?)<\/infoTable>/g
+  let match
+  while ((match = tableRegex.exec(xmlText)) !== null) {
+    const block = match[1]
+    function getTag(tag) {
+      const m = block.match(new RegExp('<' + tag + '[^>]*>([^<]*)<\/' + tag + '>'))
+      return m ? m[1].trim() : ''
+    }
+    const name = getTag('nameOfIssuer')
+    const value = parseInt(getTag('value') || '0') * 1000
+    const shares = parseInt(getTag('sshPrnamt') || '0')
+    results.push({ name, value, shares, ticker: nameToTicker(name) })
+  }
+  return results
+}
+
 function fetchXmlEdgar(url) {
+  return new Promise((resolve, reject) => {
+    const options = { headers: { 'User-Agent': EDGAR_AGENT } };
+    https.get(url, options, (res) => {
+      let data = '';
+      res.on('data', chunk => { data += chunk; });
+      res.on('end', () => { resolve(data); });
+    }).on('error', reject);
+  });
+}
+
+function fetchText(url) {
   return new Promise((resolve, reject) => {
     const options = { headers: { 'User-Agent': EDGAR_AGENT } };
     https.get(url, options, (res) => {
@@ -272,41 +326,24 @@ const SECTOR_STOCKS = [
 ];
 
 const SP500_TICKERS = [
-  'MMM','AOS','ABT','ABBV','ACN','ADBE','AMD','AES','AFL','A','APD','ABNB','AKAM','ALB','ARE',
-  'ALGN','ALLE','LNT','ALL','GOOGL','GOOG','MO','AMZN','AMCR','AEE','AAL','AEP','AXP','AIG',
-  'AMT','AWK','AMP','AME','AMGN','APH','ADI','ANSS','AON','APA','AAPL','AMAT','APTV','ACGL',
-  'ADM','ANET','AJG','AIZ','T','ATO','ADSK','ADP','AZO','AVB','AVY','AXON','BKR','BALL','BAC',
-  'BK','BBWI','BAX','BDX','BRK.B','BBY','BIO','TECH','BIIB','BLK','BX','BA','BMY','AVGO',
-  'BR','BRO','BF.B','BLDR','BSX','CHRW','CDNS','CZR','CPT','CPB','COF','CAH','KMX','CCL',
-  'CARR','CAT','CBOE','CBRE','CDW','CE','COR','CNC','CDAY','CF','CRL','SCHW','CHTR','CVX',
-  'CMG','CB','CHD','CI','CINF','CTAS','CSCO','C','CFG','CLX','CME','CMS','KO','CTSH','CL','CMCSA',
-  'CAG','COP','ED','STZ','CEG','COO','CPRT','GLW','CPAY','CTVA','CSGP','COST','CTRA','CCI','CSX',
-  'CMI','CVS','DHR','DRI','DVA','DAY','DECK','DE','DELL','DAL','DVN','DXCM','FANG','DLR','DFS',
-  'DG','DLTR','D','DPZ','DOV','DOW','DHI','DTE','DUK','DD','EMN','ETN','EBAY','ECL','EIX','EW',
-  'EA','ELV','LLY','EMR','ENPH','ETR','EOG','EPAM','EQT','EFX','EQIX','EQR','ESS','EL','ETSY',
-  'EG','ES','EXC','EXPE','EXPD','EXR','XOM','FFIV','FDS','FICO','FAST','FRT','FDX','FIS',
-  'FITB','FSLR','FE','FI','FMC','F','FTNT','FTV','FOXA','FOX','BEN','FCX','GRMN','IT','GE','GEHC',
-  'GEN','GNRC','GD','GIS','GM','GPC','GILD','GPN','GL','GDDY','GS','HAL','HIG','HAS','HCA','DOC',
-  'HSIC','HSY','HES','HPE','HLT','HOLX','HD','HON','HRL','HST','HWM','HPQ','HUBB','HUM','HBAN',
-  'HII','IBM','IEX','IDXX','ITW','INCY','IR','PODD','INTC','ICE','IFF','IP','IPG','INTU','ISRG',
-  'IVZ','INVH','IQV','IRM','JBHT','JBL','JKHY','J','JNJ','JCI','JPM','JNPR','K','KVUE','KDP',
-  'KEY','KEYS','KMB','KIM','KMI','KLAC','KHC','KR','LHX','LH','LRCX','LW','LVS','LDOS','LEN',
-  'LII','LIN','LYV','LKQ','LMT','L','LOW','LULU','LYB','MTB','MRO','MPC','MKTX','MAR',
-  'MMC','MLM','MAS','MA','MTCH','MKC','MCD','MCK','MDT','MRK','META','MET','MTD','MGM','MCHP',
-  'MU','MSFT','MAA','MRNA','MHK','MOH','TAP','MDLZ','MPWR','MNST','MCO','MS','MOS','MSI','MSCI',
-  'NDAQ','NTAP','NFLX','NEM','NWSA','NWS','NEE','NKE','NI','NDSN','NSC','NTRS','NOC','NCLH',
-  'NRG','NUE','NVDA','NVR','NXPI','ORLY','OXY','ODFL','OMC','ON','OKE','ORCL','OTIS','PCAR',
-  'PKG','PLTR','PANW','PARA','PH','PAYX','PAYC','PYPL','PNR','PEP','PFE','PCG','PM','PSX','PNW',
-  'PNC','POOL','PPG','PPL','PFG','PG','PGR','PLD','PRU','PEG','PTC','PSA','PHM','QRVO','PWR',
-  'QCOM','DGX','RL','RJF','RTX','O','REG','REGN','RF','RSG','RMD','RVTY','ROK','ROL','ROP','ROST',
-  'RCL','SPGI','CRM','SBAC','SLB','STX','SRE','NOW','SHW','SPG','SWKS','SJM','SNA','SOLV','SO',
-  'LUV','SWK','SBUX','STT','STLD','STE','SYK','SMCI','SYF','SNPS','SYY','TMUS','TROW','TTWO',
-  'TPR','TRGP','TGT','TEL','TDY','TFX','TER','TSLA','TXN','TXT','TMO','TJX','TSCO','TT','TDG',
-  'TRV','TRMB','TFC','TYL','TSN','USB','UBER','UDR','ULTA','UNP','UAL','UPS','URI','UNH','UHS',
-  'VLO','VTR','VLTO','VRSN','VRSK','VZ','VRTX','VTRS','VICI','V','VST','VMC','WRB','GWW','WAB',
-  'WBA','WMT','DIS','WBD','WM','WAT','WEC','WFC','WELL','WST','WDC','WY','WHR','WMB','WTW','WYNN',
-  'XEL','XYL','YUM','ZBRA','ZBH','ZTS',
-];
+  'AAPL','MSFT','NVDA','GOOGL','META','AMD','ADBE','CRM','NOW','INTU',
+  'CSCO','IBM','ORCL','QCOM','TXN','ADI','AMAT','KLAC','LRCX','PANW',
+  'ANET','PLTR','INTC','GLW','TEL',
+  'JPM','BAC','WFC','GS','MS','C','USB','PNC','V','MA',
+  'AXP','PYPL','BLK','SCHW','SPGI','MCO','PGR','CB','MET','AFL',
+  'UNH','LLY','JNJ','MRK','ABBV','BMY','PFE','AMGN','GILD','VRTX',
+  'MDT','ABT','SYK','BSX','ISRG','DHR','TMO','CVS','HUM','REGN',
+  'AMZN','HD','LOW','TGT','MCD','SBUX','CMG','NKE','TSLA','BKNG',
+  'MAR','HLT','F','GM','LULU',
+  'WMT','COST','PG','KO','PEP','MO','PM','KMB','CL','GIS','HSY','MKC',
+  'LMT','RTX','GD','NOC','BA','CAT','DE','HON','EMR','ETN',
+  'UPS','FDX','UNP','GE','MMM',
+  'XOM','CVX','COP','EOG','OXY','DVN','SLB','HAL','WMB','OKE',
+  'NEE','DUK','SO','AEP','D','EXC','SRE','XEL',
+  'AMT','PLD','EQIX','CCI','SPG','PSA','O','WELL',
+  'NFLX','DIS','CMCSA','T','VZ','TMUS','CHTR','PARA','OMC','NDAQ',
+  'LIN','APD','ECL','SHW','FCX','NEM','NUE',
+]
 
 function buildFmpData(metricsJson, incomeJson, balanceJson) {
   const m = Array.isArray(metricsJson) ? metricsJson[0] : null;
@@ -343,8 +380,23 @@ function buildFmpData(metricsJson, incomeJson, balanceJson) {
 }
 
 async function main() {
-  console.log('Starting full data fetch. Estimated time: 30-40 minutes.');
-  console.log('Do not close this terminal window.');
+  console.log('='.repeat(50));
+  console.log('Bullet Investing — Weekly Data Fetch Script');
+  console.log('='.repeat(50));
+  console.log('');
+  console.log('Estimated total time: 45-60 minutes')
+  console.log('Steps:')
+  console.log('  1. Market indices      (~2 min)')
+  console.log('  2. SPY weekly change   (~15 sec)')
+  console.log('  3. Fear & Greed        (instant)')
+  console.log('  4. Sector stocks       (~6 min)')
+  console.log('  5. Weekly movers       (~17 min)')
+  console.log('  5b. Congressional trades (~1 min)')
+  console.log('  5c. Big investor 13Fs  (~5 min)')
+  console.log('  6. Stock fundamentals  (~25 min for 150 stocks)')
+  console.log('')
+  console.log('Leave this terminal open.')
+  console.log('='.repeat(50));
   console.log('');
 
   const today = new Date().toISOString().split('T')[0];
@@ -384,7 +436,7 @@ async function main() {
       console.warn(`  Failed index ${ticker}:`, e.message);
       output.indices[ticker] = { label: INDEX_LABELS[ticker] || ticker, price: null, change: null, intraday: [] };
     }
-    await sleep(2000);
+    await sleep(13000);
   }
 
   // ── STEP 2: SPY WEEKLY CHANGE ──────────────────────────────────────────────
@@ -401,7 +453,7 @@ async function main() {
   } catch (e) {
     console.warn('  Failed SPY weekly:', e.message);
   }
-  await sleep(2000);
+  await sleep(13000);
 
   // ── STEP 3: FEAR & GREED SCORE ─────────────────────────────────────────────
   const vixScore = calcVixScore(output.fearGreed.vixPrice);
@@ -434,7 +486,7 @@ async function main() {
       console.warn(`  Failed sector ${ticker}:`, e.message);
       output.sectorMovement[ticker] = { change: null, close: null };
     }
-    await sleep(2000);
+    await sleep(13000);
   }
 
   // ── STEP 5: WEEKLY MOVERS ─────────────────────────────────────────────────
@@ -456,7 +508,7 @@ async function main() {
     } catch (e) {
       console.warn(`  Failed mover ${ticker}:`, e.message);
     }
-    await sleep(2000);
+    await sleep(13000);
   }
   moverResults.sort((a, b) => b.weeklyChange - a.weeklyChange);
   output.weeklyMovers.gainers = moverResults.slice(0, 5);
@@ -482,127 +534,177 @@ async function main() {
   await sleep(2000);
 
   // ── STEP 5c: BIG INVESTOR 13F FILINGS ────────────────────────────────────
-  console.log('── Step 5c/8: Fetching big investor 13F filings...');
+  console.log('── Step 5c: Fetching big investor 13F filings...')
   for (const investor of INVESTORS) {
-    console.log('  Fetching 13F for:', investor.name);
+    console.log('  Fetching 13F for:', investor.name)
     try {
-      const paddedCik = investor.cik.replace(/^0+/, '').padStart(10, '0');
-      const cikNum = investor.cik.replace(/^0+/, '');
+      const paddedCik = investor.cik.replace(/^0+/, '').padStart(10, '0')
+      const cikNum = investor.cik.replace(/^0+/, '')
 
+      // Step A: Get submissions
       const subData = await fetchJsonEdgar(
-        `https://data.sec.gov/submissions/CIK${paddedCik}.json`
-      );
+        'https://data.sec.gov/submissions/CIK' + paddedCik + '.json'
+      )
+      await sleep(1000)
 
-      const forms = subData.filings.recent.form;
-      const accNums = subData.filings.recent.accessionNumber;
-      const dates = subData.filings.recent.filingDate;
-
-      let latestIdx = -1;
+      // Step B: Find latest 13F-HR
+      const forms = subData.filings.recent.form
+      const accNums = subData.filings.recent.accessionNumber
+      const dates = subData.filings.recent.filingDate
+      let latestIdx = -1
       for (let i = 0; i < forms.length; i++) {
-        if (forms[i] === '13F-HR') { latestIdx = i; break; }
+        if (forms[i] === '13F-HR') { latestIdx = i; break }
       }
-      if (latestIdx === -1) throw new Error('No 13F-HR filing found');
+      if (latestIdx === -1) {
+        throw new Error('No 13F-HR found for ' + investor.name)
+      }
+      const accNum = accNums[latestIdx]
+      const filingDate = dates[latestIdx]
+      const accNumFlat = accNum.replace(/-/g, '')
 
-      const accNum = accNums[latestIdx];
-      const filingDate = dates[latestIdx];
-      const accNumFlat = accNum.replace(/-/g, '');
+      // Step C: Get directory listing as HTML text
+      const dirUrl = 'https://www.sec.gov/Archives/edgar/data/' +
+        cikNum + '/' + accNumFlat + '/'
+      const htmlText = await fetchTextEdgar(dirUrl)
+      await sleep(1000)
 
-      const indexData = await fetchJsonEdgar(
-        `https://data.sec.gov/Archives/edgar/data/${cikNum}/${accNumFlat}/${accNum}-index.json`
-      );
+      // Step D: Find XML file from directory listing
+      const hrefMatches = htmlText.match(/href="([^"]+\.xml)"/gi) || []
+      const xmlFiles = hrefMatches
+        .map(function(m) {
+          const match = m.match(/href="([^"]+)"/i)
+          return match ? match[1] : null
+        })
+        .filter(Boolean)
+        .filter(function(f) {
+          const lower = f.toLowerCase()
+          return !lower.includes('xsl') &&
+                 !lower.includes('form13f') &&
+                 f !== 'primary_doc.xml'
+        })
 
-      const items = indexData.directory?.item || [];
-      const xmlFile = items.find(f =>
-        f.name.endsWith('.xml') &&
-        !f.name.toLowerCase().includes('xsl') &&
-        f.name !== 'primary_doc.xml' &&
-        !f.name.toLowerCase().includes('form13f')
-      ) || items.find(f => f.name.endsWith('.xml'));
+      if (xmlFiles.length === 0) {
+        throw new Error('No XML file found in directory for ' + investor.name)
+      }
 
-      if (!xmlFile) throw new Error('XML file not found');
+      // Build full XML URL
+      let xmlUrl = xmlFiles[0]
+      if (!xmlUrl.startsWith('http')) {
+        xmlUrl = 'https://www.sec.gov' + (xmlUrl.startsWith('/') ? '' : '/') + xmlUrl
+      }
 
-      const xmlText = await fetchXmlEdgar(
-        `https://data.sec.gov/Archives/edgar/data/${cikNum}/${accNumFlat}/${xmlFile.name}`
-      );
+      // Step E: Fetch and parse XML
+      const xmlText = await fetchTextEdgar(xmlUrl)
+      await sleep(1000)
 
-      let parsed = parseHoldings(xmlText);
-      const total = parsed.reduce((s, h) => s + h.value, 0);
-      parsed = parsed
-        .map(h => ({ ...h, pct: total > 0 ? ((h.value / total) * 100).toFixed(1) : '0.0' }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 20);
+      let holdings = parseHoldingsFromXml(xmlText)
+      if (holdings.length === 0) {
+        throw new Error('No holdings parsed from XML for ' + investor.name)
+      }
+
+      // Step F: Calculate percentages and take top 20
+      const total = holdings.reduce(function(s, h) { return s + h.value }, 0)
+      holdings = holdings
+        .map(function(h) {
+          return Object.assign({}, h, {
+            pct: total > 0 ? ((h.value / total) * 100).toFixed(1) : '0.0'
+          })
+        })
+        .sort(function(a, b) { return b.value - a.value })
+        .slice(0, 20)
 
       output.bigInvestors[investor.cik] = {
         name: investor.name,
         fund: investor.fund,
-        filingDate,
-        rows: parsed,
-        total,
-      };
-      console.log(`  ${investor.name}: ${parsed.length} holdings fetched`);
-    } catch (e) {
-      console.warn(`  Failed 13F for ${investor.name}:`, e.message);
-      output.bigInvestors[investor.cik] = { error: true };
+        filingDate: filingDate,
+        rows: holdings,
+        total: total,
+      }
+      console.log('  Success:', investor.name, '-', holdings.length, 'holdings')
+
+    } catch(e) {
+      console.warn('  Failed', investor.name + ':', e.message)
+      output.bigInvestors[investor.cik] = { error: true }
     }
-    await sleep(3000);
+    await sleep(3000)
   }
 
   // ── STEP 6: STOCK FUNDAMENTALS ─────────────────────────────────────────────
-  console.log('── Step 6/8: Fetching stock fundamentals (500 tickers, ~30 min)...');
+  console.log('── Step 6/6: Fetching stock fundamentals (150 curated tickers, ~45 min)...')
   for (let i = 0; i < SP500_TICKERS.length; i++) {
-    const ticker = SP500_TICKERS[i];
-    if ((i + 1) % 25 === 0) console.log(`  Stock fundamentals: ${i + 1}/${SP500_TICKERS.length} complete...`);
-    const stockEntry = {};
+    const ticker = SP500_TICKERS[i]
+    if ((i + 1) % 25 === 0) console.log(`  Stock fundamentals: ${i + 1}/${SP500_TICKERS.length} complete...`)
+
+    const stockEntry = {}
+
+    // Polygon price call
+    let priceResult = null
     try {
-      const [priceRes, refRes, metricsRes, incomeRes, balanceRes] = await Promise.allSettled([
-        fetchJson(`https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`),
-        fetchJson(`https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`),
-        fetchJson(`https://financialmodelingprep.com/api/v3/key-metrics/${ticker}?limit=1&apiKey=${FMP_KEY}`),
-        fetchJson(`https://financialmodelingprep.com/api/v3/income-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
-        fetchJson(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
-      ]);
-
-      // Price
-      if (priceRes.status === 'fulfilled') {
-        const r = priceRes.value.results?.[0];
-        if (r) {
-          stockEntry.close = r.c ?? null;
-          stockEntry.open = r.o ?? null;
-          stockEntry.high = r.h ?? null;
-          stockEntry.low = r.l ?? null;
-          stockEntry.volume = r.v ?? null;
-          stockEntry.change = r.c && r.o ? +((( r.c - r.o) / r.o) * 100).toFixed(2) : null;
-        }
-      }
-
-      // Reference
-      if (refRes.status === 'fulfilled') {
-        const d = refRes.value.results || {};
-        stockEntry.name = d.name ?? null;
-        stockEntry.description = d.description ?? null;
-        stockEntry.sector = d.sic_description ?? SECTOR_MAP[ticker] ?? null;
-        stockEntry.employees = d.total_employees ?? null;
-        stockEntry.website = d.homepage_url ?? null;
-        stockEntry.marketCap = d.market_cap != null ? Number(d.market_cap) : null;
-      } else {
-        stockEntry.sector = SECTOR_MAP[ticker] ?? null;
-      }
-
-      // FMP fundamentals
-      const fmp = buildFmpData(
-        metricsRes.status === 'fulfilled' ? metricsRes.value : null,
-        incomeRes.status === 'fulfilled' ? incomeRes.value : null,
-        balanceRes.status === 'fulfilled' ? balanceRes.value : null,
-      );
-      Object.assign(stockEntry, fmp);
-      stockEntry._complete = true;
-
-    } catch (e) {
-      console.warn(`  Failed fundamentals ${ticker}:`, e.message);
-      stockEntry._complete = false;
+      priceResult = await fetchJson(
+        `https://api.polygon.io/v2/aggs/ticker/${ticker}/prev?adjusted=true&apiKey=${POLYGON_KEY}`
+      )
+    } catch(e) {
+      console.warn(`  Price fetch failed for ${ticker}:`, e.message)
     }
-    output.stocks[ticker] = stockEntry;
-    await sleep(3000);
+    await sleep(13000)
+
+    // Polygon reference call
+    let refResult = null
+    try {
+      refResult = await fetchJson(
+        `https://api.polygon.io/v3/reference/tickers/${ticker}?apiKey=${POLYGON_KEY}`
+      )
+    } catch(e) {
+      console.warn(`  Reference fetch failed for ${ticker}:`, e.message)
+    }
+    await sleep(2000)
+
+    // FMP calls in parallel (no strict rate limit on free tier)
+    const [metricsRes, incomeRes, balanceRes] = await Promise.allSettled([
+      fetchJson(`https://financialmodelingprep.com/api/v3/key-metrics/${ticker}?limit=1&apiKey=${FMP_KEY}`),
+      fetchJson(`https://financialmodelingprep.com/api/v3/income-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
+      fetchJson(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${ticker}?limit=2&apiKey=${FMP_KEY}`),
+    ])
+    await sleep(2000)
+
+    // Process price data
+    if (priceResult) {
+      const r = priceResult.results?.[0]
+      if (r) {
+        stockEntry.close = r.c ?? null
+        stockEntry.open = r.o ?? null
+        stockEntry.high = r.h ?? null
+        stockEntry.low = r.l ?? null
+        stockEntry.volume = r.v ?? null
+        stockEntry.change = r.c && r.o
+          ? +((( r.c - r.o) / r.o) * 100).toFixed(2) : null
+      }
+    }
+
+    // Process reference data
+    if (refResult) {
+      const d = refResult.results || {}
+      stockEntry.name = d.name ?? null
+      stockEntry.description = d.description ?? null
+      stockEntry.sector = d.sic_description ?? SECTOR_MAP[ticker] ?? null
+      stockEntry.employees = d.total_employees ?? null
+      stockEntry.website = d.homepage_url ?? null
+      stockEntry.marketCap = d.market_cap != null
+        ? Number(d.market_cap) : null
+    } else {
+      stockEntry.sector = SECTOR_MAP[ticker] ?? null
+    }
+
+    // Process FMP data
+    const fmp = buildFmpData(
+      metricsRes.status === 'fulfilled' ? metricsRes.value : null,
+      incomeRes.status === 'fulfilled' ? incomeRes.value : null,
+      balanceRes.status === 'fulfilled' ? balanceRes.value : null,
+    )
+    Object.assign(stockEntry, fmp)
+    stockEntry._complete = true
+
+    output.stocks[ticker] = stockEntry
   }
 
   // ── WRITE OUTPUT ───────────────────────────────────────────────────────────

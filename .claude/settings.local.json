@@ -3,7 +3,12 @@
     "allow": [
       "Bash(npx react-scripts *)",
       "Bash(powershell *)",
-      "Bash(node *)"
+      "Bash(node *)",
+      "PowerShell(\\(Get-Content scripts\\\\fetchMarketData.js -Raw | Select-String -Pattern \".{60,70}\" -AllMatches\\).Matches | Where-Object { $_.Index -lt 500 } | Select-Object -First 5 Value)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(python3 *)",
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"scripts\\\\fetchMarketData.js\"\\); $pos = 0; $lineNum = 1; while \\($pos -lt $bytes.Length -and $lineNum -lt 19\\) { if \\($bytes[$pos] -eq 10\\) { $lineNum++ }; $pos++ }; $lineStart = $pos; $lineEnd = $pos; while \\($lineEnd -lt $bytes.Length -and $bytes[$lineEnd] -ne 10\\) { $lineEnd++ }; $lineBytes = $bytes[$lineStart..\\($lineEnd-1\\)]; Write-Host \"Length: $\\($lineBytes.Length\\)\"; Write-Host \"Col63 byte: $\\($lineBytes[62]\\)\"; $lineBytes[58..67] | ForEach-Object { \"{0:X2}\" -f $_ } | Join-String -Separator \" \")",
+      "PowerShell($bytes = [System.IO.File]::ReadAllBytes\\(\"scripts\\\\fetchMarketData.js\"\\); $pos = 0; $lineNum = 1; while \\($pos -lt $bytes.Length -and $lineNum -lt 19\\) { if \\($bytes[$pos] -eq 10\\) { $lineNum++ }; $pos++ }; $lineStart = $pos; $lineEnd = $pos; while \\($lineEnd -lt $bytes.Length -and $bytes[$lineEnd] -ne 10\\) { $lineEnd++ }; $lineBytes = $bytes[$lineStart..\\($lineEnd-1\\)]; Write-Host \"Line19 length: $\\($lineBytes.Length\\)\"; Write-Host \"Bytes 58-67: $\\(\\($lineBytes[58..67] | ForEach-Object { '{0:X2}' -f $_ }\\) -join ' '\\)\")"
     ]
   }
 }
